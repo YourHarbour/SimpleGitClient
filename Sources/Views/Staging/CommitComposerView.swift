@@ -15,39 +15,17 @@ struct CommitComposerView: View {
                 Rectangle().fill(Theme.border).frame(height: 1)
 
                 VStack(spacing: 10) {
-                    // 1. Commit mode segment
-                    HStack(spacing: 8) {
-                        HStack(spacing: 6) {
-                            CommitNodeGlyph(color: Theme.accentTeal)
-                            Text("Commit").font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(Theme.textPrimary)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(RoundedRectangle(cornerRadius: 5).fill(Theme.bgElevated))
-
-                        Spacer()
-
-                        modeIcon("arrow.up", help: "Commit & Push") {
-                            Task { await repo.performCommit(); try? await repo.push() }
-                        }
-                        .disabled(!repo.commitButtonState.isEnabled)
-                        modeIcon("arrow.up.arrow.down", help: "Commit & Sync") {
-                            Task { await repo.performCommit(); try? await repo.fetch() }
-                        }
-                        .disabled(!repo.commitButtonState.isEnabled)
+                    // 1. Commit 标签
+                    HStack(spacing: 6) {
+                        CommitNodeGlyph(color: Theme.accentTeal)
+                        Text("Commit").font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Theme.textPrimary)
                     }
-
-                    // 2. Amend
-                    Toggle(isOn: binding.amendPreviousCommit) {
-                        Text("Amend previous commit")
-                            .font(.system(size: 12))
-                            .foregroundStyle(Theme.textSecondary)
-                    }
-                    .toggleStyle(.checkbox)
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .background(RoundedRectangle(cornerRadius: 5).fill(Theme.bgElevated))
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                    // 3. Summary + char counter
+                    // 2. Summary + char counter
                     ZStack(alignment: .topTrailing) {
                         TextField("Commit summary", text: binding.commitSummary)
                             .textFieldStyle(.plain)
@@ -135,17 +113,6 @@ struct CommitComposerView: View {
         }
     }
 
-    private func modeIcon(_ icon: String, help: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 12))
-                .foregroundStyle(Theme.textSecondary)
-                .frame(width: 26, height: 26)
-                .background(RoundedRectangle(cornerRadius: 5).fill(Theme.bgElevated))
-        }
-        .buttonStyle(.plain)
-        .help(help)
-    }
 }
 
 /// 提交节点小图标 "-○-"

@@ -1,27 +1,32 @@
 import SwiftUI
+import AppKit
 
 /// 中央提交图谱视图 — spec §7.A
 struct CommitGraphView: View {
     @Environment(AppViewModel.self) private var appVM
 
     // 布局常量
-    static let branchColWidth: CGFloat = 172
     static let rowHeight: CGFloat = 40
     static let laneSpacing: CGFloat = 18
     static let leadingPad: CGFloat = 16
     static let nodeRadius: CGFloat = 11
 
-    private func graphColWidth(maxLane: Int) -> CGFloat {
-        max(Self.leadingPad + CGFloat(maxLane + 1) * Self.laneSpacing + 12, 60)
+    // 可拖拽的列宽
+    @State private var branchColWidth: CGFloat = 172
+    @State private var graphColW: CGFloat = 92   // 用户可拖;实际取 max(它, 适配 lane 的最小值)
+
+    private func graphColMin(maxLane: Int) -> CGFloat {
+        max(Self.leadingPad + CGFloat(maxLane + 1) * Self.laneSpacing + 12, 56)
     }
 
     var body: some View {
         if let repo = appVM.activeRepo {
             let gvm = repo.graphViewModel
-            let gWidth = graphColWidth(maxLane: gvm.maxLane)
+            let graphMin = graphColMin(maxLane: gvm.maxLane)
+            let graphW = max(graphColW, graphMin)
 
             VStack(spacing: 0) {
-                columnHeader(graphWidth: gWidth)
+                columnHeader(graphWidth: graphW)
 
                 if repo.isLoading && gvm.baseRows.isEmpty {
                     ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -37,8 +42,8 @@ struct CommitGraphView: View {
                     ScrollView {
                         LazyVStack(spacing: 0) {
                             ForEach(gvm.rows) { row in
-                                CommitGraphRow(row: row, repo: repo,
-                                               maxLane: gvm.maxLane, graphWidth: gWidth)
+                                CommitGraphRow(row: row, repo: repo, maxLane: gvm.maxLane,
+                                               branchWidth: branchColWidth, graphWidth: graphW)
                             }
                         }
                     }
@@ -47,6 +52,17 @@ struct CommitGraphView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Theme.bgApp)
+            .overlay(alignment: .topLeading) {
+                // 两条可拖拽的竖直分隔符(贯穿表头与列表)
+                if !gvm.rows.isEmpty {
+                    ZStack(alignment: .topLeading) {
+                        ColumnDivider(width: $branchColWidth, range: 90...360)
+                            .offset(x: branchColWidth)
+                        ColumnDivider(width: $graphColW, range: graphMin...440)
+                            .offset(x: branchColWidth + graphW)
+                    }
+                }
+            }
         }
     }
 
@@ -55,16 +71,12 @@ struct CommitGraphView: View {
     private func columnHeader(graphWidth: CGFloat) -> some View {
         HStack(spacing: 0) {
             Text("BRANCH / TAG")
-                .frame(width: Self.branchColWidth, alignment: .leading)
+                .frame(width: branchColWidth, alignment: .leading)
                 .padding(.leading, 16)
             Text("GRAPH")
                 .frame(width: graphWidth, alignment: .leading)
             Text("COMMIT MESSAGE")
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Image(systemName: "gearshape")
-                .font(.system(size: 12))
-                .foregroundStyle(Theme.textSecondary)
-                .padding(.trailing, 14)
         }
         .font(.system(size: 11, weight: .semibold))
         .foregroundStyle(Theme.textSecondary)
@@ -74,12 +86,47 @@ struct CommitGraphView: View {
     }
 }
 
+// MARK: - 可拖拽列分隔符
+
+struct ColumnDivider: View {
+    @Binding var width: CGFloat
+    let range: ClosedRange<CGFloat>
+    @State private var start: CGFloat?
+
+    var body: some View {
+        Rectangle()
+            .fill(Theme.border)
+            .frame(width: 1)
+            .frame(maxHeight: .infinity)
+            .overlay(
+                Rectangle()
+                    .fill(Color.clear)
+                    .frame(width: 18)
+                    .frame(maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .onHover { inside in
+                        if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+                    }
+                    .gesture(
+                        DragGesture(minimumDistance: 2)
+                            .onChanged { value in
+                                if start == nil { start = width }
+                                width = min(max((start ?? width) + value.translation.width,
+                                                range.lowerBound), range.upperBound)
+                            }
+                            .onEnded { _ in start = nil }
+                    )
+            )
+    }
+}
+
 // MARK: - Row
 
 struct CommitGraphRow: View {
     let row: GraphRow
     let repo: RepoViewModel
     let maxLane: Int
+    let branchWidth: CGFloat
     let graphWidth: CGFloat
 
     private var isSelected: Bool { repo.graphViewModel.selectedRowID == row.id }
@@ -89,7 +136,7 @@ struct CommitGraphRow: View {
         HStack(spacing: 0) {
             // ① BRANCH / TAG
             branchTagColumn
-                .frame(width: CommitGraphView.branchColWidth, alignment: .trailing)
+                .frame(width: branchWidth, alignment: .trailing)
                 .padding(.trailing, 6)
 
             // ② GRAPH

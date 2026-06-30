@@ -294,6 +294,8 @@ class GitService {
                 isHead = true
             }
             if name == "HEAD" { continue }
+            // 跳过 origin/HEAD 这类符号引用(它指向 origin/main,会产生重复的"云"标签)
+            if name.hasSuffix("/HEAD") { continue }
             let type: GitRef.RefType
             if name.hasPrefix("tag: ") {
                 name = String(name.dropFirst(5))

@@ -95,11 +95,6 @@ struct StagingPanelView: View {
 
     private func viewModeToolbar(_ repo: RepoViewModel) -> some View {
         HStack(spacing: 0) {
-            Image(systemName: "arrow.up.arrow.down")
-                .font(.system(size: 12))
-                .foregroundStyle(Theme.textSecondary)
-                .frame(width: 28, height: 28)
-
             Spacer()
 
             HStack(spacing: 0) {

@@ -30,7 +30,6 @@ class RepoViewModel {
     // 提交编辑
     var commitSummary = ""
     var commitDescription = ""
-    var amendPreviousCommit = false
     var commitSignOff = false
     var commitAllowEmpty = false
 
@@ -45,7 +44,7 @@ class RepoViewModel {
 
     var commitButtonState: CommitButtonState {
         let hasSummary = !commitSummary.trimmingCharacters(in: .whitespaces).isEmpty
-        if (amendPreviousCommit || commitAllowEmpty) && hasSummary { return .ready }
+        if commitAllowEmpty && hasSummary { return .ready }
         if stagedFiles.isEmpty { return .noStagedFiles }
         else if !hasSummary { return .noMessage }
         else { return .ready }
@@ -152,11 +151,10 @@ class RepoViewModel {
         let body = commitDescription.trimmingCharacters(in: .whitespacesAndNewlines)
         if !body.isEmpty { message += "\n\n" + body }
         do {
-            try await gitService.commit(message: message, amend: amendPreviousCommit,
+            try await gitService.commit(message: message,
                                          signOff: commitSignOff, allowEmpty: commitAllowEmpty)
             commitSummary = ""
             commitDescription = ""
-            amendPreviousCommit = false
             await refresh()
             ToastCenter.shared.show("Committed: \(summary)", style: .success)
         } catch { showErr("Commit", error) }
