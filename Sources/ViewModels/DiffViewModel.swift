@@ -47,7 +47,7 @@ class DiffViewModel {
         do {
             let rawDiff = try await gitService.getFileDiffForCommit(hash: hash, file: file)
             diffFile = DiffParser.parse(rawDiff, filePath: file)
-            fileContent = nil
+            fileContent = try? await gitService.getFileAtCommit(hash: hash, file: file)
         } catch {
             self.error = error.localizedDescription
             diffFile = nil

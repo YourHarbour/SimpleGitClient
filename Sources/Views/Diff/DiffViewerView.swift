@@ -169,27 +169,36 @@ struct DiffViewerView: View {
         }
     }
 
+    @ViewBuilder
     private func fileView(dvm: DiffViewModel) -> some View {
-        let lines = (dvm.fileContent ?? "").components(separatedBy: "\n")
-        return ScrollView([.vertical, .horizontal]) {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(lines.enumerated()), id: \.offset) { idx, text in
-                    HStack(spacing: 0) {
-                        Text("\(idx + 1)")
-                            .font(Theme.codeFontFallback)
-                            .foregroundStyle(Theme.diffLineNumber)
-                            .frame(width: 48, alignment: .trailing)
-                            .padding(.trailing, 10)
-                        Text(text.isEmpty ? " " : text)
-                            .font(Theme.codeFontFallback)
-                            .foregroundStyle(Theme.textPrimary)
+        if let content = dvm.fileContent, !content.isEmpty {
+            let lines = content.components(separatedBy: "\n")
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(lines.enumerated()), id: \.offset) { idx, text in
+                        HStack(spacing: 0) {
+                            Text("\(idx + 1)")
+                                .font(Theme.codeFontFallback)
+                                .foregroundStyle(Theme.diffLineNumber)
+                                .frame(width: 48, alignment: .trailing)
+                                .padding(.trailing, 10)
+                            Text(text.isEmpty ? " " : text)
+                                .font(Theme.codeFontFallback)
+                                .foregroundStyle(Theme.textPrimary)
+                                .lineLimit(dvm.wrapLines ? nil : 1)
+                                .fixedSize(horizontal: false, vertical: dvm.wrapLines)
+                            Spacer(minLength: 0)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(minHeight: 17)
                     }
-                    .frame(height: 17)
                 }
+                .padding(.vertical, 6)
             }
-            .padding(.vertical, 6)
+            .background(Theme.bgApp)
+        } else {
+            centeredMessage("File View unavailable (binary or empty file).")
         }
-        .background(Theme.bgApp)
     }
 
     private func centeredMessage(_ text: String) -> some View {

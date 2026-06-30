@@ -423,6 +423,11 @@ class GitService {
     func getFileDiffForCommit(hash: String, file: String) async throws -> String {
         return try await execute(["diff", "\(hash)~1", hash, "--", file])
     }
+
+    /// 某个提交里某文件的完整内容(用于提交详情的 File View)。
+    func getFileAtCommit(hash: String, file: String) async throws -> String {
+        return try await execute(["show", "\(hash):\(file)"])
+    }
     
     func getChangedFilesForCommit(hash: String) async throws -> [GitFileStatus] {
         let output = try await execute(["diff-tree", "--no-commit-id", "-r", "--name-status", hash])
