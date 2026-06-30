@@ -91,6 +91,8 @@ enum Theme {
     static let selectedRow = Color(hex: "#23262d")
     /// 分支橙色
     static let accentOrange = Color(hex: "#e6994a")
+    /// 进度提示黄色
+    static let accentYellow = Color(hex: "#e9c54a")
     // MARK: NSColor versions (for NSTextView)
 
     static let nsBgApp = NSColor(hex: "#16181d")

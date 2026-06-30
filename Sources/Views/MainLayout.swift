@@ -26,8 +26,8 @@ struct MainLayout: View {
         .background(Theme.bgApp)
         .background(WindowAccessor(titleBarHeight: Theme.titleBarHeight))
         .ignoresSafeArea(.container, edges: .top)
+        .overlay(alignment: .bottomLeading) { ActivityOverlay() }
         .overlay(alignment: .bottomLeading) { ToastOverlay() }
-        .overlay(alignment: .bottomTrailing) { ActivityOverlay() }
         .task { await appVM.bootstrap() }
         .alert("Error", isPresented: Binding(
             get: { appVM.showError }, set: { appVM.showError = $0 }

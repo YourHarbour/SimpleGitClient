@@ -61,22 +61,21 @@ struct ActivityOverlay: View {
         Group {
             if activity.isBusy, let label = activity.current {
                 HStack(spacing: 10) {
-                    ProgressView().controlSize(.small).tint(Theme.accentTeal)
+                    ProgressView().controlSize(.small).tint(Theme.bgApp)
                     Text(label)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Theme.textPrimary)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Theme.bgApp)
                 }
-                .padding(.horizontal, 16).padding(.vertical, 11)
+                .padding(.horizontal, 16).padding(.vertical, 12)
                 .background(
                     RoundedRectangle(cornerRadius: 9)
-                        .fill(Theme.bgElevated)
-                        .shadow(color: .black.opacity(0.35), radius: 12, x: 0, y: 3)
+                        .fill(Theme.accentYellow)
+                        .shadow(color: Theme.accentYellow.opacity(0.5), radius: 12, x: 0, y: 3)
                 )
-                .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.accentTeal.opacity(0.4), lineWidth: 1))
-                .transition(.move(edge: .trailing).combined(with: .opacity))
+                .transition(.move(edge: .leading).combined(with: .opacity))
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
         .padding(16)
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: activity.isBusy)
     }
