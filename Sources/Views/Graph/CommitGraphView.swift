@@ -23,6 +23,7 @@ struct CommitGraphView: View {
         if let repo = appVM.activeRepo {
             let gvm = repo.graphViewModel
             let graphMin = graphColMin(maxLane: gvm.maxLane)
+            let graphMax = max(440, graphMin + 80)   // 保证范围有效(lane 很多时 graphMin 可能很大)
             let graphW = max(graphColW, graphMin)
 
             VStack(spacing: 0) {
@@ -58,7 +59,7 @@ struct CommitGraphView: View {
                     ZStack(alignment: .topLeading) {
                         ColumnDivider(width: $branchColWidth, range: 90...360)
                             .offset(x: branchColWidth)
-                        ColumnDivider(width: $graphColW, range: graphMin...440)
+                        ColumnDivider(width: $graphColW, range: graphMin...graphMax)
                             .offset(x: branchColWidth + graphW)
                     }
                 }

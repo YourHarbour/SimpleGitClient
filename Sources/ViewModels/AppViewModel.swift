@@ -161,9 +161,10 @@ class AppViewModel {
         let folder = Self.cloneFolderName(url: trimmed, name: name)
         let target = (directory as NSString).appendingPathComponent(folder)
         let git = GitService(repoPath: nil)
-        ToastCenter.shared.show("Cloning \(folder)…", style: .info)
         do {
-            try await git.clone(url: trimmed, to: target)
+            try await ActivityCenter.shared.track("Cloning \(folder)…") {
+                try await git.clone(url: trimmed, to: target)
+            }
             await openRepository(at: target)
             ToastCenter.shared.show("Cloned \(folder)", style: .success)
         } catch GitError.authenticationRequired {

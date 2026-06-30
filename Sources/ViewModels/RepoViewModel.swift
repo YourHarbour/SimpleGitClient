@@ -163,11 +163,15 @@ class RepoViewModel {
     // MARK: - Remote / branches
 
     @MainActor func pull(rebase: Bool = false) async throws {
-        try await gitService.pull(rebase: rebase); await refresh()
+        try await ActivityCenter.shared.track("Pulling…") {
+            try await gitService.pull(rebase: rebase); await refresh()
+        }
         ToastCenter.shared.show("Pulled from origin", style: .success)
     }
     @MainActor func push() async throws {
-        try await gitService.push(); await refresh()
+        try await ActivityCenter.shared.track("Pushing…") {
+            try await gitService.push(); await refresh()
+        }
         ToastCenter.shared.show("Pushed to origin", style: .success)
     }
 
@@ -187,27 +191,37 @@ class RepoViewModel {
             try? KeychainService.shared.saveCredential(
                 GitCredential(host: host, username: username, token: token, createdAt: Date()))
         }
-        try await gitService.push()
-        await refresh()
+        try await ActivityCenter.shared.track("Pushing…") {
+            try await gitService.push()
+            await refresh()
+        }
         ToastCenter.shared.show(remember ? "Pushed — token saved for \(host)" : "Pushed to \(host)", style: .success)
     }
     @MainActor func pushSetUpstream() async throws {
         try await gitService.pushSetUpstream(branch: currentBranch); await refresh()
     }
     @MainActor func fetch() async throws {
-        try await gitService.fetch(); await refresh()
+        try await ActivityCenter.shared.track("Fetching…") {
+            try await gitService.fetch(); await refresh()
+        }
         ToastCenter.shared.show("Fetched from remotes", style: .success)
     }
     @MainActor func stash(message: String? = nil) async throws {
-        try await gitService.stash(message: message); await refresh()
+        try await ActivityCenter.shared.track("Stashing…") {
+            try await gitService.stash(message: message); await refresh()
+        }
         ToastCenter.shared.show("Changes stashed", style: .success)
     }
     @MainActor func stashPop() async throws {
-        try await gitService.stashPop(); await refresh()
+        try await ActivityCenter.shared.track("Applying stash…") {
+            try await gitService.stashPop(); await refresh()
+        }
         ToastCenter.shared.show("Stash applied", style: .success)
     }
     @MainActor func checkoutBranch(_ name: String) async throws {
-        try await gitService.checkout(branch: name); await refresh()
+        try await ActivityCenter.shared.track("Switching to \(name)…") {
+            try await gitService.checkout(branch: name); await refresh()
+        }
         ToastCenter.shared.show("Switched to \(name)", style: .success)
     }
     @MainActor func createBranch(_ name: String) async throws {

@@ -33,18 +33,16 @@ final class ToastCenter {
     private(set) var toasts: [Toast] = []
 
     func show(_ message: String, style: ToastStyle = .info) {
-        DispatchQueue.main.async {
-            let toast = Toast(message: message, style: style)
+        let toast = Toast(message: message, style: style)
+        Task { @MainActor in
             self.toasts.append(toast)
             if self.toasts.count > 4 { self.toasts.removeFirst(self.toasts.count - 4) }
-            let duration: Double = style == .error ? 4.0 : 2.6
-            DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
-                self.toasts.removeAll { $0.id == toast.id }
-            }
+            try? await Task.sleep(for: .seconds(style == .error ? 4.0 : 2.6))
+            self.toasts.removeAll { $0.id == toast.id }
         }
     }
 
-    func dismiss(_ id: UUID) {
+    @MainActor func dismiss(_ id: UUID) {
         toasts.removeAll { $0.id == id }
     }
 }

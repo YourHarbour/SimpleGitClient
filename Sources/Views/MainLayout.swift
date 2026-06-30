@@ -4,11 +4,16 @@ import AppKit
 /// 主布局 — 按 spec §3 四大横向区域
 struct MainLayout: View {
     @Environment(AppViewModel.self) private var appVM
+    @State private var toastCenter = ToastCenter.shared
+    @State private var activityCenter = ActivityCenter.shared
     @State private var sidebarWidth: CGFloat = 260
     @State private var stagingWidth: CGFloat = 460
 
     var body: some View {
-        VStack(spacing: 0) {
+        // 让 MainLayout 观察 toast / 进度变化,变化时重建底部 overlay
+        let _ = toastCenter.toasts.count
+        let _ = activityCenter.items.count
+        return VStack(spacing: 0) {
             TitleBarView()      // ① §4
 
             if appVM.activeRepo != nil {
@@ -20,8 +25,9 @@ struct MainLayout: View {
         }
         .background(Theme.bgApp)
         .background(WindowAccessor(titleBarHeight: Theme.titleBarHeight))
-        .overlay { ToastOverlay() }
         .ignoresSafeArea(.container, edges: .top)
+        .overlay(alignment: .bottomLeading) { ToastOverlay() }
+        .overlay(alignment: .bottomTrailing) { ActivityOverlay() }
         .task { await appVM.bootstrap() }
         .alert("Error", isPresented: Binding(
             get: { appVM.showError }, set: { appVM.showError = $0 }

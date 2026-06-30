@@ -9,6 +9,7 @@ struct SimpleGitClientApp: App {
             MainLayout()
                 .environment(appViewModel)
                 .environment(ToastCenter.shared)
+                .environment(ActivityCenter.shared)
                 .frame(minWidth: 1100, minHeight: 700)
                 .background(Theme.bgApp)
                 .preferredColorScheme(.dark)
