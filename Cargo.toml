@@ -1,0 +1,39 @@
+[package]
+name = "simple-git-client"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "A native GTK4 Git GUI (GitKraken-style) for Linux — Rust port of the macOS SimpleGitClient"
+
+[[bin]]
+name = "simple-git-client"
+path = "src/main.rs"
+
+[dependencies]
+# gtk4-rs 0.8 is the last series with MSRV 1.75 (matches the system rustc).
+# GTK 4.14 is installed, so the v4_14 feature is available.
+gtk = { package = "gtk4", version = "=0.8.2", features = ["v4_14"] }
+# libadwaita 0.6 pairs with gtk4-rs 0.8; runtime is 1.5, v1_4 APIs are plenty.
+adw = { package = "libadwaita", version = "=0.6.0", features = ["v1_4"] }
+
+# --- Pins so the transitive build-dependency tree stays parseable by cargo 1.75 ---
+# system-deps + glib/gtk macro crates pull the toml stack; the newest
+# toml_edit/toml_datetime/winnow switched to edition2024, which cargo 1.75 cannot
+# even parse as a candidate. Capping the whole chain keeps Cargo on the 0.x line.
+proc-macro-crate = "=3.2.0"
+toml_edit = "=0.22.22"
+toml_datetime = "=0.6.8"
+winnow = "=0.6.20"
+# indexmap/hashbrown: 0.17 went edition2024; 2.5.0 is the last indexmap on hashbrown 0.14
+# and still satisfies toml_edit's ^2.3.0 requirement.
+indexmap = "=2.5.0"
+hashbrown = "=0.14.5"
+
+# JSON parsing for the GitHub/GitLab PR + Issue integration (via curl, no HTTP crate).
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Simple Git Client
+GenericName=Git Client
+Comment=A native GTK4 Git GUI (GitKraken-style)
+Exec=@EXEC@ %U
+Icon=com.simplegitclient.app
+Terminal=false
+Categories=Development;RevisionControl;
+Keywords=git;version control;commit;branch;diff;
+StartupNotify=true
+StartupWMClass=com.simplegitclient.app
