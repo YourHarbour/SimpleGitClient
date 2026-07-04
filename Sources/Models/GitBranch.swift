@@ -34,12 +34,3 @@ struct GitTag: Identifiable, Hashable {
     let message: String?
     let isAnnotated: Bool
 }
-
-struct GitWorktree: Identifiable, Hashable {
-    var id: String { path }
-    let path: String
-    let branch: String?
-    let isMain: Bool
-
-    var name: String { (path as NSString).lastPathComponent }
-}

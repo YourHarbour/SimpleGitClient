@@ -87,17 +87,24 @@ open ./dist/SimpleGitClient.app
 6. **Untracked files.** `git status` uses `--untracked-files=all` to list individual files (matches
    the spec / GitKraken), so the staging list uses `LazyVStack` to stay smooth with thousands of rows.
 
-## 5. Auth (push & clone) — Overleaf etc.
+## 5. Auth (push / pull / fetch / clone) — Overleaf etc.
 
 - `GitService.execute` runs with `GIT_TERMINAL_PROMPT=0`. Auth failures are detected by matching
   stderr for `authentication` / `could not read username` / **`could not read password`** /
   `invalid username or password` / `403` → `GitError.authenticationRequired`. (Overleaf embeds
   `git@` in the URL, so it only lacks the *password* — matching "Username" alone is not enough.)
-- On a push/clone auth failure, `AuthSheet` appears (shared via `AppViewModel.AuthContext.{push,
-  clone}`). It is **token-first**: just a Token field (Overleaf needs no username; username defaults
+- **All four remote ops** trigger the flow, via `AppViewModel.AuthContext.{push, pull(rebase:),
+  fetch, clone}`. In the toolbar, `runRemote(_:label:_:)` runs the op and, on
+  `authenticationRequired`, calls `appVM.beginRemoteAuth(context:for:)` → `AuthSheet`. **Gotcha this
+  fixed:** previously only *push* handled `authenticationRequired`; *pull/fetch* just showed a red
+  toast (and the Pull-dropdown used `try?`, swallowing it silently), so an already-cloned Overleaf
+  repo whose token wasn't yet in osxkeychain could never be authenticated from the UI. Keep
+  pull/fetch routed through `runRemote`.
+- `AuthSheet` is **token-first**: just a Token field (Overleaf needs no username; username defaults
   to `git`, hidden under "Advanced"). On submit it stores the token via `git credential approve` +
-  osxkeychain (and optionally the app Keychain), then **retries the operation automatically**. The
-  ⚙️ gear opens `CredentialsSheet` to pre-add a token for any host.
+  osxkeychain (and optionally the app Keychain) in `RepoViewModel.storeToken`, then the matching
+  `storeTokenAnd{Push,Pull,Fetch}` **retries the operation automatically** (clone retries via
+  `cloneRepository`). The ⚙️ gear opens `CredentialsSheet` to pre-add a token for any host.
 
 ## 6. Implemented features (high level)
 
@@ -120,6 +127,16 @@ open ./dist/SimpleGitClient.app
   **progress indicator** (bottom-left, **yellow**, spinner + label) during pull/push/fetch/clone/etc.
 - Hover/press feedback on buttons (`ToolbarButtonStyle`, `PrimaryButtonStyle`, `OutlineButtonStyle`,
   `SegmentButton`), traffic lights inline with the first tab (`WindowAccessor` + `.ignoresSafeArea(.top)`).
+- **Persisted layout widths.** Sidebar + staging panel widths (`MainLayout`) and the two commit-graph
+  column widths (`CommitGraphView`) survive relaunch via `WidthStore` (UserDefaults keys
+  `SimpleGitClient.width.*`; CGFloat stored as Double). `@State` reads `WidthStore` as its default and
+  a `.onChange` writes back on drag — so widths also persist across graph↔diff view switches.
+- **Live auto-refresh.** The repo-root FSEvents watcher (`FileWatcherService`) now triggers a
+  debounced (250ms) *quiet* refresh (`RepoViewModel.scheduleExternalRefresh` — no `isLoading` flicker)
+  of status + branches + tags + **log/graph** + stash + HEAD-parent state. Previously the watcher only
+  called `refreshStatus()`, so commits made in another tool (VSCode, CLI) cleared the staging list but
+  never appeared in the graph. Watching the repo root includes `.git/`, so external commit / checkout /
+  fetch all fire it.
 
 ## 7. Conventions
 
@@ -132,9 +149,15 @@ open ./dist/SimpleGitClient.app
 
 ## 8. Known limitations / good next tasks
 
-- Column widths and panel widths are **not persisted** across launches (per-session only).
 - No conflict-resolution UI; merge/rebase conflicts only surface as error toasts.
-- Undo/Redo and toolbar Search are placeholders (disabled / no-op).
+- **Undo/Redo** are commit-level (`RepoViewModel.undoLastCommit` / `redoCommit`): Undo =
+  `git reset --soft HEAD~1` (the last commit's changes return to staging), Redo =
+  `git reset --soft <undone-commit>` (the undone commit object is still dangling, so it re-attaches).
+  Enabled by `canUndo` (HEAD has a parent) / `canRedo` (redo stack non-empty); the redo stack is
+  cleared by any new commit or checkout. It does **not** cover checkout/merge/stash — only commits.
+- Removed as non-functional / unwanted chrome: toolbar **Search** + **Actions** buttons; sidebar
+  **Cloud Patches / Pull Requests / Issues / Teams** and **Worktrees** sections. Real PR/Issue
+  browsing would be a separate feature needing GitHub OAuth + API.
 - "GitHub.com" clone source is just a URL helper — no OAuth repo browser.
 - Diff rendering is SwiftUI `LazyVStack` (fine for normal files; very large files could use NSTextView).
 - The graph can get very wide for repos with many concurrent branches (column auto-sizes to lanes).

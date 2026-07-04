@@ -74,14 +74,16 @@ struct ToolbarView: View {
 
     private var rightSection: some View {
         HStack(spacing: 4) {
-            // Undo
-            toolbarButton(icon: "arrow.uturn.backward", label: "Undo", disabled: true) {
-                // TODO: Undo
+            // Undo(撤销上次提交 → reset --soft HEAD~1)
+            toolbarButton(icon: "arrow.uturn.backward", label: "Undo",
+                          disabled: !(appVM.activeRepo?.canUndo ?? false)) {
+                Task { await appVM.activeRepo?.undoLastCommit() }
             }
 
-            // Redo
-            toolbarButton(icon: "arrow.uturn.forward", label: "Redo", disabled: true) {
-                // TODO: Redo
+            // Redo(重做被撤销的提交)
+            toolbarButton(icon: "arrow.uturn.forward", label: "Redo",
+                          disabled: !(appVM.activeRepo?.canRedo ?? false)) {
+                Task { await appVM.activeRepo?.redoCommit() }
             }
 
             toolbarDivider
@@ -89,26 +91,15 @@ struct ToolbarView: View {
             // Pull (with dropdown)
             HStack(spacing: 0) {
                 toolbarButton(icon: "arrow.down.doc", label: "Pull") {
-                    guard let repo = appVM.activeRepo else { return }
-                    Task {
-                        do {
-                            try await repo.pull()
-                        } catch {
-                            ToastCenter.shared.show("Pull failed: \(error.localizedDescription)", style: .error)
-                        }
-                    }
+                    runRemote(.pull(rebase: false), label: "Pull") { try await $0.pull(rebase: false) }
                 }
 
                 Menu {
                     Button("Pull (merge)") {
-                        Task {
-                            try? await appVM.activeRepo?.pull(rebase: false)
-                        }
+                        runRemote(.pull(rebase: false), label: "Pull") { try await $0.pull(rebase: false) }
                     }
                     Button("Pull (rebase)") {
-                        Task {
-                            try? await appVM.activeRepo?.pull(rebase: true)
-                        }
+                        runRemote(.pull(rebase: true), label: "Pull") { try await $0.pull(rebase: true) }
                     }
                 } label: {
                     Image(systemName: "chevron.down")
@@ -123,32 +114,14 @@ struct ToolbarView: View {
 
             // Push
             toolbarButton(icon: "arrow.up.doc", label: "Push") {
-                guard let repo = appVM.activeRepo else { return }
-                Task {
-                    do {
-                        try await repo.push()
-                    } catch {
-                        if case GitError.authenticationRequired = error {
-                            await appVM.beginPushAuth(for: repo)
-                        } else {
-                            ToastCenter.shared.show("Push failed: \(error.localizedDescription)", style: .error)
-                        }
-                    }
-                }
+                runRemote(.push, label: "Push") { try await $0.push() }
             }
 
             toolbarDivider
 
             // Fetch
             toolbarButton(icon: "arrow.triangle.2.circlepath", label: "Fetch") {
-                guard let repo = appVM.activeRepo else { return }
-                Task {
-                    do {
-                        try await repo.fetch()
-                    } catch {
-                        ToastCenter.shared.show("Fetch failed: \(error.localizedDescription)", style: .error)
-                    }
-                }
+                runRemote(.fetch, label: "Fetch") { try await $0.fetch() }
             }
 
             toolbarDivider
@@ -177,31 +150,24 @@ struct ToolbarView: View {
                     try? await repo.stashPop()
                 }
             }
+        }
+    }
 
-            toolbarDivider
-
-            // Actions (more) — 下拉菜单
-            Menu {
-                Button("Fetch All") { Task { try? await appVM.activeRepo?.fetch() } }
-                Button("Pull") { Task { try? await appVM.activeRepo?.pull() } }
-                Button("Push") { Task { try? await appVM.activeRepo?.push() } }
-                Divider()
-                Button("New Branch…") { appVM.showCreateBranchSheet = true }
-                Button("Stash All") { Task { try? await appVM.activeRepo?.stash() } }
-            } label: {
-                VStack(spacing: 3) {
-                    Image(systemName: "ellipsis.circle").font(.system(size: 16))
-                    Text("Actions").font(.system(size: 10))
+    /// 执行一个远程操作(pull/push/fetch)。若因缺 token 报 `authenticationRequired`,
+    /// 弹鉴权框(存好 token 后由 submitAuth 自动重试);其它错误弹红 toast。
+    private func runRemote(_ context: AppViewModel.AuthContext, label: String,
+                           _ op: @escaping (RepoViewModel) async throws -> Void) {
+        guard let repo = appVM.activeRepo else { return }
+        Task {
+            do {
+                try await op(repo)
+            } catch {
+                if case GitError.authenticationRequired = error {
+                    await appVM.beginRemoteAuth(context, for: repo)
+                } else {
+                    ToastCenter.shared.show("\(label) failed: \(error.localizedDescription)", style: .error)
                 }
-                .foregroundStyle(Theme.textSecondary)
-                .frame(width: 52, height: 48)
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-
-            // Search
-            toolbarButton(icon: "magnifyingglass", label: "Search") {}
         }
     }
 

@@ -53,15 +53,6 @@ struct LeftSidebarView: View {
                                 simpleRow(icon: "tag", text: t.name, color: Theme.accentBlue)
                             }
                         }
-                        section("WORKTREES", icon: "rectangle.split.3x1", count: repo.worktrees.count) {
-                            ForEach(repo.worktrees) { w in
-                                simpleRow(icon: "rectangle.split.3x1", text: w.branch ?? w.name, color: Theme.textSecondary)
-                            }
-                        }
-                        section("CLOUD PATCHES", icon: "bookmark", count: 0) { EmptyView() }
-                        section("PULL REQUESTS", icon: "arrow.triangle.pull", count: 0) { EmptyView() }
-                        section("ISSUES", icon: "list.bullet", count: nil) { EmptyView() }
-                        section("TEAMS", icon: "person.2", count: nil) { EmptyView() }
                     }
                 }
                 .padding(.top, 2)
@@ -80,11 +71,6 @@ struct LeftSidebarView: View {
                 railIcon("desktopcomputer", count: repo.localBranches.count)
                 railIcon("cloud", count: repo.remoteBranches.count)
                 railIcon("tag", count: repo.tags.count)
-                railIcon("rectangle.split.3x1", count: repo.worktrees.count)
-                railIcon("bookmark", count: 0)
-                railIcon("arrow.triangle.pull", count: 0)
-                railIcon("list.bullet", count: nil)
-                railIcon("person.2", count: nil)
             }
             Spacer()
         }

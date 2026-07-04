@@ -452,7 +452,18 @@ class GitService {
         if allowEmpty { args.append("--allow-empty") }
         _ = try await execute(args)
     }
-    
+
+    /// HEAD 是否存在父提交(决定「撤销上次提交」是否可用)。
+    func headHasParent() async -> Bool {
+        (try? await execute(["rev-parse", "--verify", "HEAD~1"])) != nil
+    }
+
+    /// 软重置到某个 ref:移动分支指针但保留暂存区与工作区。
+    /// 用于「撤销上次提交」(reset --soft HEAD~1)与「重做」(reset --soft <被撤销提交>)。
+    func resetSoft(to ref: String) async throws {
+        _ = try await execute(["reset", "--soft", ref])
+    }
+
     // MARK: - Remote
     
     func pull(rebase: Bool = false) async throws {
@@ -545,34 +556,6 @@ class GitService {
         return output.components(separatedBy: "\n").filter { !$0.isEmpty }
     }
     
-    // MARK: - Worktrees
-
-    func getWorktrees() async throws -> [GitWorktree] {
-        let output = try await execute(["worktree", "list", "--porcelain"])
-        var result: [GitWorktree] = []
-        var path: String?
-        var branch: String?
-        func flush() {
-            if let p = path {
-                let ref = branch.map { $0.replacingOccurrences(of: "refs/heads/", with: "") }
-                result.append(GitWorktree(path: p, branch: ref, isMain: result.isEmpty))
-            }
-            path = nil; branch = nil
-        }
-        for line in output.components(separatedBy: "\n") {
-            if line.hasPrefix("worktree ") {
-                flush()
-                path = String(line.dropFirst("worktree ".count))
-            } else if line.hasPrefix("branch ") {
-                branch = String(line.dropFirst("branch ".count))
-            } else if line.isEmpty {
-                flush()
-            }
-        }
-        flush()
-        return result
-    }
-
     // MARK: - Tags
     
     func getTags() async throws -> [GitTag] {

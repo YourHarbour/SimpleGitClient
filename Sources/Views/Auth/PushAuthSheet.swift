@@ -11,12 +11,22 @@ struct AuthSheet: View {
     @State private var working = false
     @FocusState private var tokenFocused: Bool
 
-    private var isClone: Bool {
-        if case .clone = appVM.authContext { return true }
-        return false
+    private var actionWord: String {
+        switch appVM.authContext {
+        case .push: return "Push"
+        case .pull: return "Pull"
+        case .fetch: return "Fetch"
+        case .clone: return "Clone"
+        }
     }
-    private var actionWord: String { isClone ? "Clone" : "Push" }
-    private var verb: String { isClone ? "Cloning from" : "Pushing to" }
+    private var verb: String {
+        switch appVM.authContext {
+        case .push: return "Pushing to"
+        case .pull: return "Pulling from"
+        case .fetch: return "Fetching from"
+        case .clone: return "Cloning from"
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {

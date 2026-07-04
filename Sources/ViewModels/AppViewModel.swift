@@ -20,7 +20,12 @@ class AppViewModel {
     var sidebarCollapsed = false
 
     // 鉴权(push / clone 共用)
-    enum AuthContext: Equatable { case push; case clone(url: String, directory: String, name: String?) }
+    enum AuthContext: Equatable {
+        case push
+        case pull(rebase: Bool)
+        case fetch
+        case clone(url: String, directory: String, name: String?)
+    }
     var showAuthSheet = false
     var authHost = ""
     var authUsername = "git"
@@ -198,8 +203,10 @@ class AppViewModel {
 
     // MARK: - Auth (push / clone)
 
-    func beginPushAuth(for repo: RepoViewModel) async {
-        authContext = .push
+    /// push / pull / fetch 鉴权失败后的统一入口:填好 host/用户名并弹 token 框,
+    /// 用户提交后 submitAuth 会存 token 并自动重试对应操作。
+    func beginRemoteAuth(_ context: AuthContext, for repo: RepoViewModel) async {
+        authContext = context
         if let info = await repo.remoteHostInfo() {
             authHost = info.host
             authUsername = info.username
@@ -220,6 +227,22 @@ class AppViewModel {
                 showAuthSheet = false
             } catch {
                 showErrorMessage("Push failed: \(error.localizedDescription)")
+            }
+        case .pull(let rebase):
+            guard let repo = activeRepo else { showAuthSheet = false; return }
+            do {
+                try await repo.storeTokenAndPull(host: host, username: username, token: token, remember: remember, rebase: rebase)
+                showAuthSheet = false
+            } catch {
+                showErrorMessage("Pull failed: \(error.localizedDescription)")
+            }
+        case .fetch:
+            guard let repo = activeRepo else { showAuthSheet = false; return }
+            do {
+                try await repo.storeTokenAndFetch(host: host, username: username, token: token, remember: remember)
+                showAuthSheet = false
+            } catch {
+                showErrorMessage("Fetch failed: \(error.localizedDescription)")
             }
         case .clone(let url, let directory, let name):
             do {

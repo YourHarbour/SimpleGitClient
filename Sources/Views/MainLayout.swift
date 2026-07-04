@@ -6,8 +6,8 @@ struct MainLayout: View {
     @Environment(AppViewModel.self) private var appVM
     @State private var toastCenter = ToastCenter.shared
     @State private var activityCenter = ActivityCenter.shared
-    @State private var sidebarWidth: CGFloat = 260
-    @State private var stagingWidth: CGFloat = 460
+    @State private var sidebarWidth: CGFloat = WidthStore.sidebar
+    @State private var stagingWidth: CGFloat = WidthStore.staging
 
     var body: some View {
         // 让 MainLayout 观察 toast / 进度变化,变化时重建底部 overlay
@@ -28,6 +28,8 @@ struct MainLayout: View {
         .ignoresSafeArea(.container, edges: .top)
         .overlay(alignment: .bottomLeading) { ActivityOverlay() }
         .overlay(alignment: .bottomLeading) { ToastOverlay() }
+        .onChange(of: sidebarWidth) { _, v in WidthStore.sidebar = v }
+        .onChange(of: stagingWidth) { _, v in WidthStore.staging = v }
         .task { await appVM.bootstrap() }
         .alert("Error", isPresented: Binding(
             get: { appVM.showError }, set: { appVM.showError = $0 }
@@ -141,5 +143,37 @@ struct PanelResizeHandle: View {
                             .onEnded { _ in startWidth = nil }
                     )
             )
+    }
+}
+
+// MARK: - 宽度持久化(跨启动)
+
+/// 面板宽 / 提交图列宽的持久化。CGFloat 以 Double 存入 UserDefaults;
+/// 拖拽结束由各视图的 `.onChange` 写回,启动时作为 `@State` 默认值读回。
+enum WidthStore {
+    private static let store = UserDefaults.standard
+
+    private static func read(_ key: String, _ fallback: CGFloat) -> CGFloat {
+        (store.object(forKey: key) as? Double).map { CGFloat($0) } ?? fallback
+    }
+    private static func write(_ key: String, _ value: CGFloat) {
+        store.set(Double(value), forKey: key)
+    }
+
+    static var sidebar: CGFloat {
+        get { read("SimpleGitClient.width.sidebar", 260) }
+        set { write("SimpleGitClient.width.sidebar", newValue) }
+    }
+    static var staging: CGFloat {
+        get { read("SimpleGitClient.width.staging", 460) }
+        set { write("SimpleGitClient.width.staging", newValue) }
+    }
+    static var branchCol: CGFloat {
+        get { read("SimpleGitClient.width.branchCol", 172) }
+        set { write("SimpleGitClient.width.branchCol", newValue) }
+    }
+    static var graphCol: CGFloat {
+        get { read("SimpleGitClient.width.graphCol", 92) }
+        set { write("SimpleGitClient.width.graphCol", newValue) }
     }
 }

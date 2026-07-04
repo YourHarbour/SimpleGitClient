@@ -12,8 +12,8 @@ struct CommitGraphView: View {
     static let nodeRadius: CGFloat = 11
 
     // 可拖拽的列宽
-    @State private var branchColWidth: CGFloat = 172
-    @State private var graphColW: CGFloat = 92   // 用户可拖;实际取 max(它, 适配 lane 的最小值)
+    @State private var branchColWidth: CGFloat = WidthStore.branchCol
+    @State private var graphColW: CGFloat = WidthStore.graphCol   // 用户可拖;实际取 max(它, 适配 lane 的最小值)
 
     private func graphColMin(maxLane: Int) -> CGFloat {
         max(Self.leadingPad + CGFloat(maxLane + 1) * Self.laneSpacing + 12, 56)
@@ -64,6 +64,8 @@ struct CommitGraphView: View {
                     }
                 }
             }
+            .onChange(of: branchColWidth) { _, v in WidthStore.branchCol = v }
+            .onChange(of: graphColW) { _, v in WidthStore.graphCol = v }
         }
     }
 

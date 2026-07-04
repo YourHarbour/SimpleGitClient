@@ -11,7 +11,6 @@ class RepoViewModel {
     var tags: [GitTag] = []
     var stagedFiles: [GitFileStatus] = []
     var unstagedFiles: [GitFileStatus] = []
-    var worktrees: [GitWorktree] = []
     var stashCount: Int = 0
     var graphViewModel = GraphViewModel()
     var diffViewModel = DiffViewModel()
@@ -37,6 +36,13 @@ class RepoViewModel {
     var fileViewMode: FileListViewMode = .path
 
     private var fileWatcher: FileWatcherService?
+    private var externalRefreshTask: Task<Void, Never>?
+
+    // Undo/Redo:仅针对「提交」。redoStack 保存被 Undo 掉的提交 hash(可 reset --soft 回去)。
+    private(set) var redoStack: [String] = []
+    var headHasParent = false          // HEAD 是否有父提交 → 决定 Undo 是否可用
+    var canUndo: Bool { headHasParent }
+    var canRedo: Bool { !redoStack.isEmpty }
 
     var totalChanges: Int { stagedFiles.count + unstagedFiles.count }
     var localBranches: [GitBranch] { branches.filter { $0.isLocal } }
@@ -57,15 +63,37 @@ class RepoViewModel {
 
     private func setupFileWatcher() {
         guard let path = gitService.repoPath else { return }
+        // 监听整个仓库根(含 .git/):在别的程序里 commit / checkout / fetch 等都会写 .git,
+        // 触发这里的回调,从而自动刷新提交图与分支,而不仅仅是工作区状态。
         fileWatcher = FileWatcherService(path: path) { [weak self] in
             Task { @MainActor [weak self] in
-                await self?.refreshStatus()
+                self?.scheduleExternalRefresh()
             }
         }
         fileWatcher?.start()
     }
 
-    func cleanup() { fileWatcher?.stop() }
+    /// 外部改动 → 去抖后做一次「安静」刷新(不切 isLoading,避免中央区闪烁)。
+    /// FSEvents 本身已按 1s 合并事件,这里再叠加 250ms 去抖,避免连续写盘触发多次刷新。
+    @MainActor
+    private func scheduleExternalRefresh() {
+        externalRefreshTask?.cancel()
+        externalRefreshTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            if Task.isCancelled { return }
+            await refreshStatus()
+            await refreshBranches()
+            await refreshTags()
+            await refreshLog()
+            await refreshStashCount()
+            await refreshHeadState()
+        }
+    }
+
+    func cleanup() {
+        externalRefreshTask?.cancel()
+        fileWatcher?.stop()
+    }
 
     @MainActor
     func refresh() async {
@@ -76,7 +104,12 @@ class RepoViewModel {
         await refreshTags()
         await refreshLog()
         await refreshStashCount()
-        worktrees = (try? await gitService.getWorktrees()) ?? []
+        await refreshHeadState()
+    }
+
+    @MainActor
+    func refreshHeadState() async {
+        headHasParent = await gitService.headHasParent()
     }
 
     @MainActor
@@ -155,9 +188,38 @@ class RepoViewModel {
                                          signOff: commitSignOff, allowEmpty: commitAllowEmpty)
             commitSummary = ""
             commitDescription = ""
+            redoStack.removeAll()   // 新提交后,之前被「撤销」的提交不再可重做
             await refresh()
             ToastCenter.shared.show("Committed: \(summary)", style: .success)
         } catch { showErr("Commit", error) }
+    }
+
+    // MARK: - Undo / Redo(提交级)
+
+    /// 撤销上次提交:reset --soft HEAD~1 —— 提交内容回到暂存区,记录被撤销的提交以便重做。
+    @MainActor
+    func undoLastCommit() async {
+        guard headHasParent else { return }
+        do {
+            let old = try await gitService.execute(["rev-parse", "HEAD"])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            try await gitService.resetSoft(to: "HEAD~1")
+            redoStack.append(old)
+            await refresh()
+            ToastCenter.shared.show("Undid last commit — changes kept in staging", style: .info)
+        } catch { showErr("Undo", error) }
+    }
+
+    /// 重做最近一次被撤销的提交:reset --soft 回那个(悬空的)提交对象。
+    @MainActor
+    func redoCommit() async {
+        guard let hash = redoStack.last else { return }
+        do {
+            try await gitService.resetSoft(to: hash)
+            redoStack.removeLast()
+            await refresh()
+            ToastCenter.shared.show("Redid commit", style: .info)
+        } catch { showErr("Redo", error) }
     }
 
     // MARK: - Remote / branches
@@ -183,19 +245,39 @@ class RepoViewModel {
         return (parsed.host, parsed.username ?? "git")
     }
 
-    /// 存 token(系统钥匙串 + 可选 App 钥匙串)后重试 push。成功后以后自动鉴权。
+    /// 存 token:写入系统钥匙串(git 之后自动鉴权)+ 可选写入 App 钥匙串。push/pull/fetch 共用。
     @MainActor
-    func storeTokenAndPush(host: String, username: String, token: String, remember: Bool) async throws {
+    func storeToken(host: String, username: String, token: String, remember: Bool) async throws {
         try await gitService.approveCredential(host: host, username: username, token: token)
         if remember {
             try? KeychainService.shared.saveCredential(
                 GitCredential(host: host, username: username, token: token, createdAt: Date()))
         }
+    }
+
+    /// 存 token 后重试 push。成功后以后自动鉴权。
+    @MainActor
+    func storeTokenAndPush(host: String, username: String, token: String, remember: Bool) async throws {
+        try await storeToken(host: host, username: username, token: token, remember: remember)
         try await ActivityCenter.shared.track("Pushing…") {
             try await gitService.push()
             await refresh()
         }
         ToastCenter.shared.show(remember ? "Pushed — token saved for \(host)" : "Pushed to \(host)", style: .success)
+    }
+
+    /// 存 token 后重试 pull(pull() 内部已有进度条 + 成功提示)。
+    @MainActor
+    func storeTokenAndPull(host: String, username: String, token: String, remember: Bool, rebase: Bool) async throws {
+        try await storeToken(host: host, username: username, token: token, remember: remember)
+        try await pull(rebase: rebase)
+    }
+
+    /// 存 token 后重试 fetch(fetch() 内部已有进度条 + 成功提示)。
+    @MainActor
+    func storeTokenAndFetch(host: String, username: String, token: String, remember: Bool) async throws {
+        try await storeToken(host: host, username: username, token: token, remember: remember)
+        try await fetch()
     }
     @MainActor func pushSetUpstream() async throws {
         try await gitService.pushSetUpstream(branch: currentBranch); await refresh()
@@ -219,6 +301,7 @@ class RepoViewModel {
         ToastCenter.shared.show("Stash applied", style: .success)
     }
     @MainActor func checkoutBranch(_ name: String) async throws {
+        redoStack.removeAll()   // 切分支后,重做目标可能已跨分支,不再安全
         try await ActivityCenter.shared.track("Switching to \(name)…") {
             try await gitService.checkout(branch: name); await refresh()
         }
