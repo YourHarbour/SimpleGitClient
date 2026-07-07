@@ -182,7 +182,7 @@ struct DiffViewerView: View {
                                 .foregroundStyle(Theme.diffLineNumber)
                                 .frame(width: 48, alignment: .trailing)
                                 .padding(.trailing, 10)
-                            Text(text.isEmpty ? " " : text)
+                            Text(formatCodeContent(text, showWhitespace: dvm.showWhitespace))
                                 .font(Theme.codeFontFallback)
                                 .foregroundStyle(Theme.textPrimary)
                                 .lineLimit(dvm.wrapLines ? nil : 1)
@@ -286,10 +286,7 @@ struct DiffLineRow: View {
     }
 
     private var displayContent: String {
-        guard showWhitespace else { return line.content.isEmpty ? " " : line.content }
-        let visible = line.content.replacingOccurrences(of: " ", with: "·")
-            .replacingOccurrences(of: "\t", with: "→   ")
-        return visible.isEmpty ? " " : visible
+        formatCodeContent(line.content, showWhitespace: showWhitespace)
     }
 
     private var marker: String {
@@ -323,4 +320,11 @@ struct DiffLineRow: View {
         default: return Theme.bgPanel
         }
     }
+}
+
+private func formatCodeContent(_ content: String, showWhitespace: Bool) -> String {
+    guard showWhitespace else { return content.isEmpty ? " " : content }
+    let visible = content.replacingOccurrences(of: " ", with: "·")
+        .replacingOccurrences(of: "\t", with: "→   ")
+    return visible.isEmpty ? " " : visible
 }
