@@ -87,9 +87,13 @@ impl App {
             let st = self.state.borrow();
             (st.auth_host.clone(), st.auth_username.clone())
         };
-        let is_clone = matches!(self.state.borrow().auth_context, crate::app::AuthContext::Clone { .. });
-        let action_word = if is_clone { "Clone" } else { "Push" };
-        let verb = if is_clone { "Cloning from" } else { "Pushing to" };
+        let auth_context = self.state.borrow().auth_context.clone();
+        let (action_word, verb) = match auth_context {
+            crate::app::AuthContext::Push => ("Push", "Pushing to"),
+            crate::app::AuthContext::Pull { .. } => ("Pull", "Pulling from"),
+            crate::app::AuthContext::Fetch => ("Fetch", "Fetching from"),
+            crate::app::AuthContext::Clone { .. } => ("Clone", "Cloning from"),
+        };
 
         let (win, content) = sheet(self, "Authentication required", 440, 340);
         let body = vbox(16);

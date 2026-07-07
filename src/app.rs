@@ -15,6 +15,8 @@ use crate::util::{self, hbox, image, label, vbox, ToastStyle};
 #[derive(Clone)]
 pub enum AuthContext {
     Push,
+    Pull { rebase: bool },
+    Fetch,
     Clone { url: String, directory: String, name: Option<String> },
 }
 
@@ -492,10 +494,10 @@ impl App {
 
     // ---------------- auth ----------------
 
-    pub async fn begin_push_auth(self: &Rc<Self>, repo: &Rc<RepoController>) {
+    pub async fn begin_remote_auth(self: &Rc<Self>, context: AuthContext, repo: &Rc<RepoController>) {
         {
             let mut st = self.state.borrow_mut();
-            st.auth_context = AuthContext::Push;
+            st.auth_context = context;
         }
         if let Some((host, user)) = repo.remote_host_info().await {
             let mut st = self.state.borrow_mut();
@@ -515,6 +517,18 @@ impl App {
                 let active_repo = self.active_repo();
                 if let Some(repo) = active_repo {
                     repo.store_token_and_push(host, username, token);
+                }
+            }
+            AuthContext::Pull { rebase } => {
+                let active_repo = self.active_repo();
+                if let Some(repo) = active_repo {
+                    repo.store_token_and_pull(host, username, token, rebase);
+                }
+            }
+            AuthContext::Fetch => {
+                let active_repo = self.active_repo();
+                if let Some(repo) = active_repo {
+                    repo.store_token_and_fetch(host, username, token);
                 }
             }
             AuthContext::Clone { url, directory, name } => {

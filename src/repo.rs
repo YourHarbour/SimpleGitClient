@@ -587,6 +587,11 @@ impl RepoController {
             this.activity_end(id);
             match r {
                 Ok(_) => this.toast("Pulled from origin", ToastStyle::Success),
+                Err(service::GitError::AuthenticationRequired) => {
+                    if let Some(app) = this.app() {
+                        app.begin_remote_auth(crate::app::AuthContext::Pull { rebase }, &this).await;
+                    }
+                }
                 Err(e) => this.toast(&format!("Pull failed: {e}"), ToastStyle::Error),
             }
         });
@@ -605,7 +610,7 @@ impl RepoController {
                 Ok(_) => this.toast("Pushed to origin", ToastStyle::Success),
                 Err(service::GitError::AuthenticationRequired) => {
                     if let Some(app) = this.app() {
-                        app.begin_push_auth(&this).await;
+                        app.begin_remote_auth(crate::app::AuthContext::Push, &this).await;
                     }
                 }
                 Err(e) => this.toast(&format!("Push failed: {e}"), ToastStyle::Error),
@@ -625,6 +630,11 @@ impl RepoController {
             this.activity_end(id);
             match r {
                 Ok(_) => this.toast("Fetched from remotes", ToastStyle::Success),
+                Err(service::GitError::AuthenticationRequired) => {
+                    if let Some(app) = this.app() {
+                        app.begin_remote_auth(crate::app::AuthContext::Fetch, &this).await;
+                    }
+                }
                 Err(e) => this.toast(&format!("Fetch failed: {e}"), ToastStyle::Error),
             }
         });
@@ -905,6 +915,60 @@ impl RepoController {
             match r {
                 Ok(_) => this.toast(&format!("Pushed — token saved for {host}"), ToastStyle::Success),
                 Err(e) => this.toast(&format!("Push failed: {e}"), ToastStyle::Error),
+            }
+        });
+    }
+
+    /// Store token then retry pull (called back from the auth dialog).
+    pub fn store_token_and_pull(
+        self: &Rc<Self>,
+        host: String,
+        username: String,
+        token: String,
+        rebase: bool,
+    ) {
+        let this = self.clone();
+        glib::spawn_future_local(async move {
+            if let Err(e) = this.service.approve_credential(&host, &username, &token).await {
+                this.toast(&format!("Saving token failed: {e}"), ToastStyle::Error);
+                return;
+            }
+            let id = this.activity_begin("Pulling…");
+            let r = this.service.pull(rebase).await;
+            if r.is_ok() {
+                this.refresh().await;
+            }
+            this.activity_end(id);
+            match r {
+                Ok(_) => this.toast(&format!("Pulled — token saved for {host}"), ToastStyle::Success),
+                Err(e) => this.toast(&format!("Pull failed: {e}"), ToastStyle::Error),
+            }
+        });
+    }
+
+    /// Store token then retry fetch (called back from the auth dialog).
+    pub fn store_token_and_fetch(
+        self: &Rc<Self>,
+        host: String,
+        username: String,
+        token: String,
+    ) {
+        let this = self.clone();
+        glib::spawn_future_local(async move {
+            if let Err(e) = this.service.approve_credential(&host, &username, &token).await {
+                this.toast(&format!("Saving token failed: {e}"), ToastStyle::Error);
+                return;
+            }
+            let id = this.activity_begin("Fetching…");
+            let r = this.service.fetch().await;
+            if r.is_ok() {
+                this.refresh().await;
+                this.spawn_forge_refresh();
+            }
+            this.activity_end(id);
+            match r {
+                Ok(_) => this.toast(&format!("Fetched — token saved for {host}"), ToastStyle::Success),
+                Err(e) => this.toast(&format!("Fetch failed: {e}"), ToastStyle::Error),
             }
         });
     }

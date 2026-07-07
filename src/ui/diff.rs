@@ -134,21 +134,21 @@ impl RepoController {
         // scroll ref for hunk nav
         let content_scroller = gtk::ScrolledWindow::new();
 
-        let up = icon_toggle("chevron.up", false);
+        let up = icon_toggle("chevron.up", false, "Previous change");
         up.connect_clicked(glib::clone!(@weak content_scroller => move |_| scroll_by(&content_scroller, -0.85)));
-        let down = icon_toggle("chevron.down", false);
+        let down = icon_toggle("chevron.down", false, "Next change");
         down.connect_clicked(glib::clone!(@weak content_scroller => move |_| scroll_by(&content_scroller, 0.85)));
         toolbar.append(&up);
         toolbar.append(&down);
         toolbar.append(&gtk::Separator::new(gtk::Orientation::Vertical));
 
-        let ws = icon_toggle("paragraphsign", show_ws);
+        let ws = icon_toggle("paragraphsign", show_ws, "Show whitespace");
         ws.connect_clicked(glib::clone!(@weak self as this => move |_| {
             let v = !this.state.borrow().show_whitespace;
             this.state.borrow_mut().show_whitespace = v;
             this.refresh_diff_view();
         }));
-        let wrap_btn = icon_toggle("arrow.turn.down.left", wrap);
+        let wrap_btn = icon_toggle("arrow.turn.down.left", wrap, "Wrap lines");
         wrap_btn.connect_clicked(glib::clone!(@weak self as this => move |_| {
             let v = !this.state.borrow().wrap_lines;
             this.state.borrow_mut().wrap_lines = v;
@@ -168,7 +168,7 @@ impl RepoController {
             content.append(&centered(&err));
         } else if view_is_file {
             match &file_content {
-                Some(c) if !c.is_empty() => build_file_view(&content, c, wrap),
+                Some(c) if !c.is_empty() => build_file_view(&content, c, wrap, show_ws),
                 _ => content.append(&centered("File View unavailable (binary or empty file).")),
             }
         } else if let Some(diff) = &diff_file {
@@ -256,7 +256,7 @@ fn diff_line_row(line: &DiffLine, wrap: bool, show_ws: bool) -> gtk::Box {
     row
 }
 
-fn build_file_view(content: &gtk::Box, text: &str, wrap: bool) {
+fn build_file_view(content: &gtk::Box, text: &str, wrap: bool, show_ws: bool) {
     content.set_margin_top(6);
     content.set_margin_bottom(6);
     for (idx, line) in text.split('\n').enumerate() {
@@ -266,8 +266,8 @@ fn build_file_view(content: &gtk::Box, text: &str, wrap: bool) {
         num.set_xalign(1.0);
         num.set_margin_end(10);
         row.append(&num);
-        let display = if line.is_empty() { " " } else { line };
-        let code = label(display, &["code", "primary-text"]);
+        let display = display_content(line, show_ws);
+        let code = label(&display, &["code", "primary-text"]);
         code.set_xalign(0.0);
         code.set_hexpand(true);
         if wrap {
@@ -300,11 +300,14 @@ fn seg_button(text: &str, active: bool) -> gtk::Button {
     b
 }
 
-fn icon_toggle(sf: &str, active: bool) -> gtk::Button {
+fn icon_toggle(sf: &str, active: bool, tooltip: &str) -> gtk::Button {
     let b = gtk::Button::new();
     b.set_child(Some(&image(sf)));
     b.add_css_class("icon-btn");
     b.set_has_frame(false);
+    if !tooltip.is_empty() {
+        b.set_tooltip_text(Some(tooltip));
+    }
     if active {
         b.add_css_class("active");
         b.add_css_class("teal");
