@@ -267,7 +267,9 @@ impl GitService {
     // MARK: - Remote
 
     pub async fn pull(&self, rebase: bool) -> Result<(), GitError> {
-        let mut a = args!["pull"];
+        // `--prune` drops remote-tracking refs whose upstream branch was deleted
+        // on the server, so the sidebar's REMOTE list stays in sync after a pull.
+        let mut a = args!["pull", "--prune"];
         if rebase {
             a.push(s("--rebase"));
         }
@@ -280,7 +282,9 @@ impl GitService {
         self.exec(args!["push", "-u", "origin", branch]).await.map(|_| ())
     }
     pub async fn fetch(&self) -> Result<(), GitError> {
-        self.exec(args!["fetch", "--all"]).await.map(|_| ())
+        // `--prune` deletes stale remote-tracking branches (e.g. a PR branch that
+        // was merged & deleted on GitHub) so REMOTE mirrors the server after Fetch.
+        self.exec(args!["fetch", "--all", "--prune"]).await.map(|_| ())
     }
 
     pub async fn checkout(&self, branch: &str) -> Result<(), GitError> {

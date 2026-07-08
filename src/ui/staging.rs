@@ -166,6 +166,7 @@ impl RepoController {
         chevron.set_pixel_size(9);
         tcontent.append(&chevron);
         title_lbl.set_css_classes(&["primary-text"]);
+        title_lbl.set_ellipsize(gtk::pango::EllipsizeMode::End);
         title_lbl.set_text(if staged { "Staged Files" } else { "Unstaged Files" });
         tcontent.append(title_lbl);
         toggle.set_child(Some(&tcontent));
@@ -184,7 +185,12 @@ impl RepoController {
         sp.set_hexpand(true);
         header.append(&sp);
 
-        let all_btn = gtk::Button::with_label(if staged { "Unstage All Changes" } else { "Stage All Changes" });
+        // Ellipsizable label keeps the full text when there's room but lets the button
+        // (and thus the whole panel) shrink instead of pinning a wide minimum width.
+        let all_lbl = gtk::Label::new(Some(if staged { "Unstage All Changes" } else { "Stage All Changes" }));
+        all_lbl.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        let all_btn = gtk::Button::new();
+        all_btn.set_child(Some(&all_lbl));
         all_btn.add_css_class("outline-btn");
         all_btn.set_has_frame(false);
         all_btn.connect_clicked(glib::clone!(@weak self as this => move |_| {
@@ -294,7 +300,9 @@ impl RepoController {
         let name_box = hbox(0);
         let dir = file.directory();
         if !dir.is_empty() {
-            name_box.append(&label(&dir, &["muted"]));
+            let dir_lbl = label(&dir, &["muted"]);
+            dir_lbl.set_ellipsize(gtk::pango::EllipsizeMode::End);
+            name_box.append(&dir_lbl);
         }
         let name = label(&file.file_name(), &["primary-text"]);
         name.set_ellipsize(gtk::pango::EllipsizeMode::Middle);

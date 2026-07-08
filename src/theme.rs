@@ -57,11 +57,15 @@ pub fn hex_to_rgb(hex: &str) -> (f64, f64, f64) {
 // MARK: - Sizes
 
 pub const TITLE_BAR_HEIGHT: i32 = 44;
-pub const TOOLBAR_HEIGHT: i32 = 64;
+pub const TOOLBAR_HEIGHT: i32 = 58;
 pub const SIDEBAR_EXPANDED_WIDTH: i32 = 260;
 pub const SIDEBAR_COLLAPSED_WIDTH: i32 = 48;
+/// Draggable floor for the sidebar. The pane opens at SIDEBAR_EXPANDED_WIDTH but
+/// the user can pull the divider in to here (well below the old 260 hard stop).
+pub const SIDEBAR_MIN_WIDTH: i32 = 150;
 pub const STAGING_PANEL_WIDTH: i32 = 460;
-pub const STAGING_PANEL_MIN_WIDTH: i32 = 340;
+/// Draggable floor for the right (staging / commit-detail) panel.
+pub const STAGING_PANEL_MIN_WIDTH: i32 = 260;
 pub const COLUMN_HEADER_HEIGHT: i32 = 32;
 
 // Commit graph geometry
@@ -144,9 +148,14 @@ button:hover { background-color: @bg_hover; }
 button:active { background-color: @bg_elevated; }
 button:disabled { color: @text_muted; background-color: transparent; }
 
-.toolbar-btn { border-radius: 6px; color: @text_secondary; padding: 4px 6px; }
+/* Toolbar action buttons: enabled ones read at full contrast (like the macOS
+   toolbar) so they look clickable; only :disabled dims to muted. */
+.toolbar-btn { border-radius: 7px; color: @text_primary; padding: 5px 8px; }
 .toolbar-btn:hover { background-color: @bg_hover; }
+.toolbar-btn:active { background-color: @bg_elevated; }
+.toolbar-btn:disabled { color: @text_muted; background-color: transparent; }
 .toolbar-btn label { color: inherit; }
+.tb-label { font-size: 11px; font-weight: 500; }
 
 .icon-btn { padding: 4px; border-radius: 4px; min-width: 24px; min-height: 24px; }
 

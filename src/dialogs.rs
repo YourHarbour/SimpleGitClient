@@ -240,7 +240,12 @@ impl App {
             left.append(&b);
         }
 
-        let resolve = glib::clone!(@weak source, @weak url, @weak owner => @default-return String::new(), move || {
+        // `source` is a plain Rc<RefCell<u8>> that lives only in this function — every
+        // other reference to it is @weak, so capturing it @weak here would let it drop
+        // as soon as show_clone_sheet() returns. Then resolve() would hit its
+        // default-return "" on every click and Clone would silently do nothing.
+        // @strong keeps it alive for the lifetime of this button handler.
+        let resolve = glib::clone!(@strong source, @weak url, @weak owner => @default-return String::new(), move || {
             if *source.borrow() == 0 {
                 url.text().trim().to_string()
             } else {

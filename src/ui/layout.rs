@@ -14,8 +14,11 @@ impl RepoController {
         container.set_vexpand(true);
 
         // --- sidebar ---
+        // The size request is the *minimum* the divider can shrink to (shrink is
+        // off, so the pane never clips content). Keep it small; the initial width
+        // comes from outer.set_position() below.
         self.build_sidebar_content();
-        self.w.sidebar_holder.set_size_request(theme::SIDEBAR_EXPANDED_WIDTH, -1);
+        self.w.sidebar_holder.set_size_request(theme::SIDEBAR_MIN_WIDTH, -1);
         self.w.sidebar_holder.add_css_class("panel");
 
         // --- center: graph | diff ---
@@ -70,13 +73,15 @@ impl RepoController {
         if let Some(app) = self.app() {
             app.state.borrow_mut().sidebar_collapsed = collapsed;
         }
-        let width = if collapsed {
-            theme::SIDEBAR_COLLAPSED_WIDTH
+        // Collapsed pins the rail at a fixed width; expanded opens at the default
+        // but keeps the small min so the divider stays draggable inward.
+        let (min_width, position) = if collapsed {
+            (theme::SIDEBAR_COLLAPSED_WIDTH, theme::SIDEBAR_COLLAPSED_WIDTH)
         } else {
-            theme::SIDEBAR_EXPANDED_WIDTH
+            (theme::SIDEBAR_MIN_WIDTH, theme::SIDEBAR_EXPANDED_WIDTH)
         };
-        self.w.sidebar_holder.set_size_request(width, -1);
-        self.w.outer_paned.set_position(width);
+        self.w.sidebar_holder.set_size_request(min_width, -1);
+        self.w.outer_paned.set_position(position);
         self.build_sidebar_content();
     }
 

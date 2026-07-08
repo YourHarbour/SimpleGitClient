@@ -204,19 +204,23 @@ impl RepoController {
 }
 
 fn tb_content(sf: &str, text: &str) -> gtk::Box {
-    let b = vbox(2);
+    let b = vbox(3);
     b.set_halign(gtk::Align::Center);
     b.set_valign(gtk::Align::Center);
     let img = gtk::Image::from_icon_name(icon_name(sf));
-    img.set_pixel_size(18);
+    img.set_pixel_size(19);
     img.set_halign(gtk::Align::Center);
     b.append(&img);
     let l = gtk::Label::new(Some(text));
-    l.add_css_class("tiny");
+    l.add_css_class("tb-label");
     l.set_halign(gtk::Align::Center);
     l.set_justify(gtk::Justification::Center);
     b.append(&l);
-    b.set_size_request(52, 48);
+    // Fix the WIDTH for a uniform button row, but leave the HEIGHT natural: a
+    // vbox packs children from the top, so a forced 48px box left the icon+label
+    // riding high with dead space beneath it. Natural height + the row's
+    // valign=Center now vertically centres the content in the bar.
+    b.set_size_request(56, -1);
     b
 }
 

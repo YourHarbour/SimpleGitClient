@@ -455,11 +455,11 @@ impl RepoController {
             st.forge_loading = false;
             match prs {
                 Ok(v) => st.pull_requests = v,
-                Err(e) => st.forge_error = Some(e),
+                Err(e) => st.forge_error = Some(crate::forge::friendly_error(&e)),
             }
             match iss {
                 Ok(v) => st.issues = v,
-                Err(e) => st.forge_error = Some(e),
+                Err(e) => st.forge_error = Some(crate::forge::friendly_error(&e)),
             }
         }
         self.refresh_sidebar();

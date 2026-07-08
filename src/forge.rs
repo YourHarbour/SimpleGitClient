@@ -245,6 +245,23 @@ fn parse_items(value: &serde_json::Value, forge: Forge, is_pull: bool) -> Result
     Ok(items)
 }
 
+/// Condense a raw forge API error into a short, actionable hint for the sidebar.
+/// The unauthenticated GitHub API is capped at 60 req/h per IP and can't see
+/// private repos, so the common failures all point the user at the token setting.
+pub fn friendly_error(raw: &str) -> String {
+    let low = raw.to_lowercase();
+    if low.contains("rate limit") {
+        "Rate limit reached — add a token in Settings (gear icon) to raise it".to_string()
+    } else if low.contains("bad credentials") || low.contains("401") {
+        "Invalid token — update it in Settings (gear icon)".to_string()
+    } else if low.contains("not found") || low.contains("404") {
+        "Not found — if private, add a token in Settings (gear icon)".to_string()
+    } else {
+        // Drop GitHub's verbose "(But here's the good news: …)" tail.
+        raw.split(" (But here's").next().unwrap_or(raw).trim().to_string()
+    }
+}
+
 /// Open a URL in the default browser.
 pub fn open_url(url: &str) {
     let _ = gio::AppInfo::launch_default_for_uri(url, gio::AppLaunchContext::NONE);

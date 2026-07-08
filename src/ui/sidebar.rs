@@ -144,6 +144,9 @@ impl RepoController {
         row.append(&chevron);
         row.append(&image(icon));
         let t = label(title, &["section-title"]);
+        // Ellipsize so a wide header (e.g. "PULL REQUESTS") doesn't pin the sidebar's
+        // minimum width — lets the divider drag in past the content's natural size.
+        t.set_ellipsize(gtk::pango::EllipsizeMode::End);
         row.append(&t);
         let sp = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         sp.set_hexpand(true);
@@ -185,6 +188,7 @@ impl RepoController {
         }
         row.append(&icon);
         let name = label(&branch.display_name(), &[]);
+        name.set_ellipsize(gtk::pango::EllipsizeMode::End);
         if branch.is_current {
             name.add_css_class("primary-text");
         } else {
@@ -360,6 +364,7 @@ fn simple_row(icon: &str, text: &str, color_class: &str) -> gtk::Box {
     img.add_css_class(color_class);
     row.append(&img);
     let l = label(text, &["dim"]);
+    l.set_ellipsize(gtk::pango::EllipsizeMode::End);
     row.append(&l);
     row
 }
