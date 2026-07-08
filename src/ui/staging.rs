@@ -277,15 +277,23 @@ impl RepoController {
         }
     }
 
-    fn file_row(self: &Rc<Self>, file: &GitFileStatus, staged: bool, indent: i32) -> gtk::Button {
+    fn file_row(self: &Rc<Self>, file: &GitFileStatus, staged: bool, indent: i32) -> gtk::Widget {
         let selected = {
             let st = self.state.borrow();
             st.show_diff && st.selected_file_path.as_deref() == Some(&file.path)
         };
+        // The row is a plain box, NOT a GtkButton — so the Stage/Unstage button it
+        // contains can be an independently-clickable button. Previously the row was a
+        // button *and* held a button: the outer one swallowed the click, so per-file
+        // staging did nothing (it just opened the diff instead).
         let row = hbox(8);
         row.set_margin_start(14 + indent);
         row.set_margin_end(12);
         row.set_size_request(-1, 30);
+        row.add_css_class("row-hover");
+        if selected {
+            row.add_css_class("row-selected");
+        }
 
         let sym = label("", &[]);
         sym.set_markup(&format!(
@@ -313,12 +321,13 @@ impl RepoController {
         sp.set_hexpand(true);
         row.append(&sp);
 
-        // Stage/Unstage button. It ALWAYS occupies its slot in the layout; hover only
-        // toggles opacity + can_target (neither changes layout), so revealing it never
-        // shifts content — which is what caused the hover flicker loop before.
+        // Stage / Unstage — a standalone button, revealed on hover or when selected.
+        // Opacity + can_target toggle (not visibility) so revealing it never reflows
+        // the row. Because it's no longer nested inside a button, its clicks land.
         let action = gtk::Button::with_label(if staged { "Unstage File" } else { "Stage File" });
         action.add_css_class("outline-btn");
         action.set_has_frame(false);
+        action.set_valign(gtk::Align::Center);
         action.set_opacity(if selected { 1.0 } else { 0.0 });
         action.set_can_target(selected);
         let path_a = file.path.clone();
@@ -326,14 +335,6 @@ impl RepoController {
             if staged { this.unstage_file(path_a.clone()); } else { this.stage_file(path_a.clone()); }
         }));
         row.append(&action);
-
-        let btn = gtk::Button::new();
-        btn.set_child(Some(&row));
-        btn.set_has_frame(false);
-        btn.add_css_class("row-hover");
-        if selected {
-            btn.add_css_class("row-selected");
-        }
 
         let motion = gtk::EventControllerMotion::new();
         let sel = selected;
@@ -347,27 +348,31 @@ impl RepoController {
                 action.set_can_target(false);
             }
         }));
-        btn.add_controller(motion);
+        row.add_controller(motion);
 
-        // click → diff
+        // left-click the row (anywhere but the action button) → show its diff. The
+        // action button claims its own clicks, so staging no longer opens the diff.
+        let click = gtk::GestureClick::new();
+        click.set_button(1);
         let path_c = file.path.clone();
-        btn.connect_clicked(glib::clone!(@weak self as this => move |_| {
+        click.connect_released(glib::clone!(@weak self as this => move |_, _, _, _| {
             this.show_file_diff(path_c.clone(), staged);
         }));
+        row.add_controller(click);
 
         // right-click context menu
         let gesture = gtk::GestureClick::new();
         gesture.set_button(3);
         let f = file.clone();
-        gesture.connect_pressed(glib::clone!(@weak self as this, @weak btn => move |_, _, x, y| {
-            this.file_context_menu(&btn, &f, staged, x, y);
+        gesture.connect_pressed(glib::clone!(@weak self as this, @weak row => move |_, _, x, y| {
+            this.file_context_menu(&row, &f, staged, x, y);
         }));
-        btn.add_controller(gesture);
+        row.add_controller(gesture);
 
-        btn
+        row.upcast()
     }
 
-    fn file_context_menu(self: &Rc<Self>, anchor: &gtk::Button, file: &GitFileStatus, staged: bool, x: f64, y: f64) {
+    fn file_context_menu(self: &Rc<Self>, anchor: &impl IsA<gtk::Widget>, file: &GitFileStatus, staged: bool, x: f64, y: f64) {
         let pop = gtk::Popover::new();
         pop.set_parent(anchor);
         pop.set_pointing_to(Some(&gtk::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
