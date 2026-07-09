@@ -159,24 +159,9 @@ button:disabled { color: @text_muted; background-color: transparent; }
 
 .icon-btn { padding: 4px; border-radius: 4px; min-width: 24px; min-height: 24px; }
 
-/* primary (commit) button — use the `background` shorthand (resets Adwaita's
-   background-image gradient, which otherwise painted over our green) and reset the
-   frame explicitly so the fill shows on a normal (non-flat) button. */
-button.primary-btn {
-    background: @commit_green;
-    background-image: none;
-    color: white;
-    border: none;
-    box-shadow: none;
-    border-radius: 6px;
-    padding: 10px 14px;
-    font-weight: 700;
-}
-button.primary-btn:hover { background: shade(@commit_green, 1.08); background-image: none; }
-button.primary-btn:active { background: shade(@commit_green, 0.92); background-image: none; }
-/* Stays clearly green when disabled (just a touch dimmer) instead of the near-black
-   green that read as gray — the label text already signals the not-ready state. */
-button.primary-btn:disabled { background: alpha(@commit_green, 0.8); background-image: none; color: alpha(white, 0.7); }
+/* primary (commit) button — see CSS_OVERRIDE below. Its fill has to beat the
+   libadwaita theme's own `button {}` rules, so it lives in a separate provider
+   loaded at USER priority (this main sheet is only at APPLICATION). */
 
 /* outline (Stage/Unstage) */
 .outline-btn {
@@ -307,4 +292,29 @@ tooltip { background-color: @bg_elevated; color: @text_primary; border: 1px soli
 popover contents, popover > arrow { background-color: @bg_elevated; color: @text_primary; border: 1px solid @border_c; }
 popover button { color: @text_primary; }
 popover button:hover { background-color: @bg_hover; }
+"#;
+
+/// Rules that must out-rank the libadwaita theme's own widget styling. Loaded as a
+/// SEPARATE provider at USER priority (above THEME); the main CSS stays at
+/// APPLICATION so it doesn't blanket-override the theme (which, at USER, shifted
+/// every row button's padding and split the commit-graph connector lines).
+///
+/// `@define-color` names don't cross providers, so these use literal hex. The
+/// `background` shorthand resets Adwaita's background-image gradient that otherwise
+/// painted over the fill.
+pub const CSS_OVERRIDE: &str = r#"
+button.primary-btn {
+    background: #3fa957;
+    background-image: none;
+    color: white;
+    border: none;
+    box-shadow: none;
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-weight: 700;
+}
+button.primary-btn:hover  { background: shade(#3fa957, 1.08); background-image: none; }
+button.primary-btn:active { background: shade(#3fa957, 0.92); background-image: none; }
+/* Stays clearly green when disabled (just dimmer); the label already signals state. */
+button.primary-btn:disabled { background: alpha(#3fa957, 0.8); background-image: none; color: alpha(white, 0.7); }
 "#;

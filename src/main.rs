@@ -39,18 +39,29 @@ fn main() -> glib::ExitCode {
 }
 
 fn load_css() {
+    let Some(display) = gtk::gdk::Display::default() else { return };
+
+    // Main stylesheet at APPLICATION priority. It must NOT sit above the theme, or
+    // its broad `button {…}` rules blanket-override libadwaita — which shifted every
+    // row button's padding and broke the commit-graph connector lines.
     let provider = gtk::CssProvider::new();
     provider.load_from_string(theme::CSS);
-    if let Some(display) = gtk::gdk::Display::default() {
-        // USER (800) sits above the libadwaita theme (THEME, 600). At APPLICATION
-        // priority the theme's own `button {…}` rules won the cascade and painted the
-        // commit button gray over our green; USER lets our stylesheet win.
-        gtk::style_context_add_provider_for_display(
-            &display,
-            &provider,
-            gtk::STYLE_PROVIDER_PRIORITY_USER,
-        );
-    }
+    gtk::style_context_add_provider_for_display(
+        &display,
+        &provider,
+        gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+    );
+
+    // A tiny second provider at USER priority (above THEME) for the few rules that
+    // must beat the theme's own button styling — currently just the green commit
+    // button. Scoped so it can't affect anything else.
+    let overrides = gtk::CssProvider::new();
+    overrides.load_from_string(theme::CSS_OVERRIDE);
+    gtk::style_context_add_provider_for_display(
+        &display,
+        &overrides,
+        gtk::STYLE_PROVIDER_PRIORITY_USER,
+    );
 }
 
 fn build_ui(adw_app: &adw::Application) {
