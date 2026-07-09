@@ -553,9 +553,11 @@ impl RepoController {
         inner.append(&options_toggle);
         inner.append(&options_box);
 
-        // commit button
+        // commit button — NOTE: don't call set_has_frame(false) here. That adds GTK's
+        // `.flat` class, which forces a transparent background and hid the green
+        // `.primary-btn` fill. The base `button` CSS already removes the border/shadow.
         self.w.commit_button.add_css_class("primary-btn");
-        self.w.commit_button.set_has_frame(false);
+        self.w.commit_button.set_hexpand(true);
         let cb_content = hbox(6);
         cb_content.set_halign(gtk::Align::Center);
         self.w.commit_button_label.set_text("Commit");

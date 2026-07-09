@@ -42,10 +42,13 @@ fn load_css() {
     let provider = gtk::CssProvider::new();
     provider.load_from_string(theme::CSS);
     if let Some(display) = gtk::gdk::Display::default() {
+        // USER (800) sits above the libadwaita theme (THEME, 600). At APPLICATION
+        // priority the theme's own `button {…}` rules won the cascade and painted the
+        // commit button gray over our green; USER lets our stylesheet win.
         gtk::style_context_add_provider_for_display(
             &display,
             &provider,
-            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+            gtk::STYLE_PROVIDER_PRIORITY_USER,
         );
     }
 }

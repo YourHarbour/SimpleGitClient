@@ -89,7 +89,7 @@ pub const CSS: &str = r#"
 @define-color text_secondary #8b909a;
 @define-color text_muted #646a73;
 @define-color accent_green #4caf50;
-@define-color commit_green #3c8c52;
+@define-color commit_green #3fa957;
 @define-color accent_teal #3fb6a8;
 @define-color accent_blue #4a90e2;
 @define-color accent_red #c0392b;
@@ -159,17 +159,24 @@ button:disabled { color: @text_muted; background-color: transparent; }
 
 .icon-btn { padding: 4px; border-radius: 4px; min-width: 24px; min-height: 24px; }
 
-/* primary (commit) button */
-.primary-btn {
-    background-color: @commit_green;
+/* primary (commit) button — use the `background` shorthand (resets Adwaita's
+   background-image gradient, which otherwise painted over our green) and reset the
+   frame explicitly so the fill shows on a normal (non-flat) button. */
+button.primary-btn {
+    background: @commit_green;
+    background-image: none;
     color: white;
-    border-radius: 5px;
-    padding: 9px 12px;
-    font-weight: 600;
+    border: none;
+    box-shadow: none;
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-weight: 700;
 }
-.primary-btn:hover { background-color: shade(@commit_green, 1.08); }
-.primary-btn:active { background-color: shade(@commit_green, 0.92); }
-.primary-btn:disabled { background-color: #2f5d3f; color: @text_muted; }
+button.primary-btn:hover { background: shade(@commit_green, 1.08); background-image: none; }
+button.primary-btn:active { background: shade(@commit_green, 0.92); background-image: none; }
+/* Stays clearly green when disabled (just a touch dimmer) instead of the near-black
+   green that read as gray — the label text already signals the not-ready state. */
+button.primary-btn:disabled { background: alpha(@commit_green, 0.8); background-image: none; color: alpha(white, 0.7); }
 
 /* outline (Stage/Unstage) */
 .outline-btn {
