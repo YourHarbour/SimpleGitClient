@@ -317,4 +317,19 @@ button.primary-btn:hover  { background: shade(#3fa957, 1.08); background-image: 
 button.primary-btn:active { background: shade(#3fa957, 0.92); background-image: none; }
 /* Stays clearly green when disabled (just dimmer); the label already signals state. */
 button.primary-btn:disabled { background: alpha(#3fa957, 0.8); background-image: none; color: alpha(white, 0.7); }
+
+/* Selected segment in the File View / Diff View toggle. Adwaita's flat-button
+   styling (THEME priority) resets the fill to `background: none` in the non-hover
+   state, wiping the main sheet's `.segment button.active` background at APPLICATION
+   — so the selected tab looked identical to the unselected one (only :hover, which
+   Adwaita supplies itself, seemed to respond). Re-assert the selected fill here at
+   USER priority with the `background` shorthand so it out-ranks the theme. Literal
+   hex mirrors @bg_elevated / @text_primary (@define-color doesn't cross providers). */
+.segment button.active {
+    background: #30343d;
+    background-image: none;
+    color: #dfe2e7;
+    box-shadow: none;
+}
+.segment button.active:hover { background: #363b45; background-image: none; }
 "#;

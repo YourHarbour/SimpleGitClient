@@ -276,7 +276,20 @@ impl GitService {
         self.exec(a).await.map(|_| ())
     }
     pub async fn push(&self) -> Result<(), GitError> {
-        self.exec(args!["push"]).await.map(|_| ())
+        match self.exec(args!["push"]).await {
+            Ok(_) => Ok(()),
+            // A brand-new local branch has no upstream yet, so bare `git push`
+            // aborts with "has no upstream branch". Fall back to creating it with
+            // `-u origin <branch>` so the first push of a new branch just works.
+            Err(GitError::CommandFailed(msg)) if msg.contains("has no upstream branch") => {
+                let branch = self.current_branch().await?;
+                if branch.is_empty() {
+                    return Err(GitError::CommandFailed(msg));
+                }
+                self.push_set_upstream(&branch).await
+            }
+            Err(e) => Err(e),
+        }
     }
     pub async fn push_set_upstream(&self, branch: &str) -> Result<(), GitError> {
         self.exec(args!["push", "-u", "origin", branch]).await.map(|_| ())
