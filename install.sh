@@ -9,9 +9,10 @@ APP_DIR="$HOME/.local/share/applications"
 ICON_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
 APP_ID="com.simplegitclient.app"
 BIN_NAME="simple-git-client"
+ICON_FILE="$ICON_DIR/$APP_ID.png"
 
 if [[ "${1:-}" == "--uninstall" ]]; then
-  rm -f "$BIN_DIR/$BIN_NAME" "$APP_DIR/$APP_ID.desktop" "$ICON_DIR/$APP_ID.png"
+  rm -f "$BIN_DIR/$BIN_NAME" "$APP_DIR/$APP_ID.desktop" "$ICON_FILE"
   update-desktop-database "$APP_DIR" 2>/dev/null || true
   gtk-update-icon-cache "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
   echo "Uninstalled Simple Git Client."
@@ -23,9 +24,12 @@ echo ">> Building release binary (this can take a couple of minutes)…"
 
 mkdir -p "$BIN_DIR" "$APP_DIR" "$ICON_DIR"
 install -m 0755 "$HERE/target/release/$BIN_NAME" "$BIN_DIR/$BIN_NAME"
-install -m 0644 "$HERE/icons/$APP_ID.png" "$ICON_DIR/$APP_ID.png"
+install -m 0644 "$HERE/icons/$APP_ID.png" "$ICON_FILE"
 
-sed "s|@EXEC@|$BIN_DIR/$BIN_NAME|g" "$HERE/data/$APP_ID.desktop.in" > "$APP_DIR/$APP_ID.desktop"
+sed \
+  -e "s|@EXEC@|$BIN_DIR/$BIN_NAME|g" \
+  -e "s|@ICON@|$ICON_FILE|g" \
+  "$HERE/data/$APP_ID.desktop.in" > "$APP_DIR/$APP_ID.desktop"
 
 update-desktop-database "$APP_DIR" 2>/dev/null || true
 gtk-update-icon-cache "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
@@ -34,7 +38,7 @@ echo ""
 echo ">> Installed:"
 echo "   binary  : $BIN_DIR/$BIN_NAME"
 echo "   desktop : $APP_DIR/$APP_ID.desktop"
-echo "   icon    : $ICON_DIR/$APP_ID.png"
+echo "   icon    : $ICON_FILE"
 echo ""
 echo "Launch it from your app grid as \"Simple Git Client\", or run: $BIN_NAME"
 if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
