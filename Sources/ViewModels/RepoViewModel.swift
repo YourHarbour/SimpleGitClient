@@ -47,6 +47,9 @@ class RepoViewModel {
     var totalChanges: Int { stagedFiles.count + unstagedFiles.count }
     var localBranches: [GitBranch] { branches.filter { $0.isLocal } }
     var remoteBranches: [GitBranch] { branches.filter { $0.isRemote } }
+    var currentLocalBranch: GitBranch? {
+        localBranches.first { $0.isCurrent } ?? localBranches.first { $0.name == currentBranch }
+    }
 
     var commitButtonState: CommitButtonState {
         let hasSummary = !commitSummary.trimmingCharacters(in: .whitespaces).isEmpty
@@ -231,10 +234,30 @@ class RepoViewModel {
         ToastCenter.shared.show("Pulled from origin", style: .success)
     }
     @MainActor func push() async throws {
-        try await ActivityCenter.shared.track("Pushing…") {
-            try await gitService.push(); await refresh()
+        let result = try await pushCurrentBranch()
+        let shouldSetUpstream = result.setUpstream
+        let branchName = result.branchName
+        if shouldSetUpstream, let branchName {
+            ToastCenter.shared.show("Pushed \(branchName) and set upstream", style: .success)
+        } else {
+            ToastCenter.shared.show("Pushed to origin", style: .success)
         }
-        ToastCenter.shared.show("Pushed to origin", style: .success)
+    }
+
+    @MainActor
+    private func pushCurrentBranch() async throws -> (setUpstream: Bool, branchName: String?) {
+        let branch = currentLocalBranch
+        let branchName = branch?.name
+        let shouldSetUpstream = branch?.trackingBranch == nil && !(branchName ?? "").isEmpty
+        try await ActivityCenter.shared.track("Pushing…") {
+            if shouldSetUpstream, let branchName {
+                try await gitService.pushSetUpstream(branch: branchName)
+            } else {
+                try await gitService.push()
+            }
+            await refresh()
+        }
+        return (shouldSetUpstream, branchName)
     }
 
     /// 解析 origin 的 host / 内嵌用户名(用于 push 鉴权弹窗)。
@@ -259,10 +282,7 @@ class RepoViewModel {
     @MainActor
     func storeTokenAndPush(host: String, username: String, token: String, remember: Bool) async throws {
         try await storeToken(host: host, username: username, token: token, remember: remember)
-        try await ActivityCenter.shared.track("Pushing…") {
-            try await gitService.push()
-            await refresh()
-        }
+        _ = try await pushCurrentBranch()
         ToastCenter.shared.show(remember ? "Pushed — token saved for \(host)" : "Pushed to \(host)", style: .success)
     }
 

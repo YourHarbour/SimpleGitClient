@@ -313,17 +313,18 @@ class GitService {
     // MARK: - Branches
     
     func getBranches() async throws -> [GitBranch] {
-        let output = try await execute(["branch", "-a", "--format=%(refname:short)\t%(objectname:short)\t%(subject)\t%(upstream:short)\t%(HEAD)"])
+        let output = try await execute(["branch", "-a", "--format=%(refname)\t%(refname:short)\t%(objectname:short)\t%(subject)\t%(upstream:short)\t%(HEAD)"])
         var branches: [GitBranch] = []
         for line in output.components(separatedBy: "\n") where !line.isEmpty {
-            let parts = line.split(separator: "\t", maxSplits: 4).map(String.init)
-            guard !parts.isEmpty else { continue }
-            let name = parts[0]
-            let hash = parts.count > 1 ? parts[1] : nil
-            let msg = parts.count > 2 ? parts[2] : nil
-            let tracking = parts.count > 3 && !parts[3].isEmpty ? parts[3] : nil
-            let isCurrent = parts.count > 4 && parts[4].contains("*")
-            let isRemote = name.hasPrefix("origin/") || name.contains("/")
+            let parts = line.split(separator: "\t", maxSplits: 5, omittingEmptySubsequences: false).map(String.init)
+            guard parts.count >= 6 else { continue }
+            let refName = parts[0]
+            let name = parts[1]
+            let hash = parts[2].isEmpty ? nil : parts[2]
+            let msg = parts[3].isEmpty ? nil : parts[3]
+            let tracking = parts[4].isEmpty ? nil : parts[4]
+            let isCurrent = parts[5].contains("*")
+            let isRemote = refName.hasPrefix("refs/remotes/")
             branches.append(GitBranch(
                 name: name, isLocal: !isRemote, isRemote: isRemote,
                 isCurrent: isCurrent, trackingBranch: tracking,
@@ -480,8 +481,9 @@ class GitService {
         _ = try await execute(["push", "-u", remote, branch])
     }
     
-    func fetch(all: Bool = true) async throws {
+    func fetch(all: Bool = true, prune: Bool = true) async throws {
         var args = ["fetch"]
+        if prune { args.append("--prune") }
         if all { args.append("--all") }
         _ = try await execute(args)
     }
