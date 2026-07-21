@@ -337,7 +337,25 @@ impl GitService {
     }
 
     pub async fn get_file_diff_for_commit(&self, hash: &str, file: &str) -> Result<String, GitError> {
-        self.exec(vec![s("diff"), format!("{hash}~1"), s(hash), s("--"), s(file)]).await
+        let commit_and_parents = self
+            .exec(vec![s("rev-list"), s("--parents"), s("-n"), s("1"), s(hash)])
+            .await?;
+        let parent = commit_and_parents.split_whitespace().nth(1);
+
+        if let Some(parent) = parent {
+            self.exec(vec![s("diff"), s(parent), s(hash), s("--"), s(file)]).await
+        } else {
+            self.exec(vec![
+                s("diff-tree"),
+                s("--root"),
+                s("--no-commit-id"),
+                s("-p"),
+                s(hash),
+                s("--"),
+                s(file),
+            ])
+            .await
+        }
     }
 
     pub async fn get_file_at_commit(&self, hash: &str, file: &str) -> Result<String, GitError> {
@@ -346,7 +364,14 @@ impl GitService {
 
     pub async fn get_changed_files_for_commit(&self, hash: &str) -> Result<Vec<GitFileStatus>, GitError> {
         let out = self
-            .exec(vec![s("diff-tree"), s("--no-commit-id"), s("-r"), s("--name-status"), s(hash)])
+            .exec(vec![
+                s("diff-tree"),
+                s("--root"),
+                s("--no-commit-id"),
+                s("-r"),
+                s("--name-status"),
+                s(hash),
+            ])
             .await?;
         let mut files = Vec::new();
         for line in out.lines().filter(|l| !l.is_empty()) {
