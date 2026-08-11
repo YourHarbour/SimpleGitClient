@@ -149,27 +149,55 @@ impl GitService {
     // MARK: - Log
 
     pub async fn log(&self, max_count: usize) -> Result<Vec<GitCommit>, GitError> {
-        let format = "%H%n%h%n%an%n%ae%n%aI%n%P%n%D%n%s%n%b%n---END---";
-        let out = self
-            .exec(vec![
+        let walk = |include_head: bool| {
+            let format = "%H%n%h%n%an%n%ae%n%aI%n%P%n%D%n%s%n%b%n---END---";
+            let mut a = vec![
                 s("log"),
                 format!("--format={format}"),
                 format!("--max-count={max_count}"),
-                s("--all"),
-                s("--topo-order"),
-            ])
-            .await?;
+                // The refs worth graphing: branches, remote-tracking branches and
+                // tags. Deliberately NOT `--all`, which also walks refs/stash,
+                // refs/notes and any fetched refs/pull/* — a single stash would
+                // otherwise plant two "WIP on <branch>" rows at the very top of the
+                // graph and push the checked-out branch's tip (and its green pill) down.
+                s("--branches"),
+                s("--remotes"),
+                s("--tags"),
+                // Newest commit first. `--topo-order` emits one line of history
+                // contiguously, so an unrelated branch (a CI-built gh-pages, say)
+                // could bury the current branch's tip below its whole chunk of
+                // commits. `--date-order` still guarantees that no parent is shown
+                // before all of its children — the invariant the lane layout needs.
+                s("--date-order"),
+                // Full ref paths in %D, so refs can be classified by namespace
+                // instead of guessed at from the shortened name.
+                s("--decorate=full"),
+            ];
+            if include_head {
+                a.push(s("HEAD")); // covers a detached checkout, which no branch points at
+            }
+            a
+        };
+        let out = match self.exec(walk(true)).await {
+            Ok(o) => o,
+            // HEAD doesn't resolve on an unborn branch (fresh repo, `checkout
+            // --orphan`), which would fail the whole walk. Graph the branches anyway.
+            Err(_) => self.exec(walk(false)).await?,
+        };
         Ok(parse_log(&out))
     }
 
     // MARK: - Branches / tags / worktrees
 
     pub async fn branches(&self) -> Result<Vec<GitBranch>, GitError> {
+        // `%(refname)` (the full path) comes first so local/remote can be told apart
+        // by where the ref lives instead of by guessing from the short name, and
+        // `%(subject)` comes last because it is the only field that may contain tabs.
         let out = self
             .exec(vec![
                 s("branch"),
                 s("-a"),
-                s("--format=%(refname:short)\t%(objectname:short)\t%(subject)\t%(upstream:short)\t%(HEAD)"),
+                s("--format=%(refname)\t%(refname:short)\t%(objectname:short)\t%(upstream:short)\t%(HEAD)\t%(subject)"),
             ])
             .await?;
         Ok(parse_branches(&out))
@@ -593,12 +621,15 @@ fn parse_log(output: &str) -> Vec<GitCommit> {
     commits
 }
 
+/// Turn one `%D` decoration list into pills. `log()` asks for `--decorate=full`, so
+/// every entry arrives as a full path ("refs/heads/main", "tag: refs/tags/v1", …)
+/// and the namespace tells us exactly what each ref is.
 fn parse_refs(refs_str: &str) -> Vec<GitRef> {
     if refs_str.is_empty() {
         return Vec::new();
     }
     let mut refs = Vec::new();
-    for part in refs_str.split(',') {
+    for part in refs_str.split(", ") {
         let mut name = part.trim().to_string();
         let mut is_head = false;
         if let Some(rest) = name.strip_prefix("HEAD -> ") {
@@ -606,20 +637,36 @@ fn parse_refs(refs_str: &str) -> Vec<GitRef> {
             is_head = true;
         }
         if name == "HEAD" {
-            continue;
+            continue; // detached HEAD marker — the row itself already shows it
         }
-        if name.ends_with("/HEAD") {
-            continue; // skip origin/HEAD symbolic ref
-        }
-        let ref_type = if let Some(rest) = name.strip_prefix("tag: ") {
-            name = rest.to_string();
-            RefType::Tag
-        } else if name.contains('/') {
-            RefType::RemoteBranch
+        let entry = if let Some(rest) = name.strip_prefix("tag: refs/tags/") {
+            GitRef { name: rest.to_string(), ref_type: RefType::Tag, is_head }
+        } else if let Some(rest) = name.strip_prefix("refs/heads/") {
+            GitRef { name: rest.to_string(), ref_type: RefType::LocalBranch, is_head }
+        } else if let Some(rest) = name.strip_prefix("refs/remotes/") {
+            if rest.ends_with("/HEAD") {
+                continue; // <remote>/HEAD is a pointer at the default branch, not a branch
+            }
+            GitRef { name: rest.to_string(), ref_type: RefType::RemoteBranch, is_head }
+        } else if name.starts_with("refs/") {
+            continue; // refs/stash, refs/notes/*, refs/replace/* … not branches
         } else {
-            RefType::LocalBranch
+            // Fallback for a short decoration (only if --decorate=full didn't apply):
+            // guess from the name, exactly as before.
+            if name.ends_with("/HEAD") {
+                continue;
+            }
+            let ref_type = if let Some(rest) = name.strip_prefix("tag: ") {
+                name = rest.to_string();
+                RefType::Tag
+            } else if name.contains('/') {
+                RefType::RemoteBranch
+            } else {
+                RefType::LocalBranch
+            };
+            GitRef { name, ref_type, is_head }
         };
-        refs.push(GitRef { name, ref_type, is_head });
+        refs.push(entry);
     }
     refs
 }
@@ -627,16 +674,31 @@ fn parse_refs(refs_str: &str) -> Vec<GitRef> {
 fn parse_branches(output: &str) -> Vec<GitBranch> {
     let mut branches = Vec::new();
     for line in output.split('\n').filter(|l| !l.is_empty()) {
-        let parts: Vec<&str> = line.splitn(5, '\t').collect();
-        if parts.is_empty() {
+        let parts: Vec<&str> = line.splitn(6, '\t').collect();
+        if parts.len() < 5 {
             continue;
         }
-        let name = parts[0].to_string();
-        let hash = parts.get(1).filter(|s| !s.is_empty()).map(|s| s.to_string());
-        let msg = parts.get(2).filter(|s| !s.is_empty()).map(|s| s.to_string());
+        let full_ref = parts[0];
+        // Every clone carries `refs/remotes/<remote>/HEAD`, the symbolic pointer at
+        // the remote's default branch. Git shortens it to the bare remote name
+        // ("origin"), which — having no slash — used to be filed as a LOCAL branch
+        // and show up in the sidebar next to master/main. It is not a branch: skip it.
+        if full_ref.starts_with("refs/remotes/") && full_ref.ends_with("/HEAD") {
+            continue;
+        }
+        // `git branch` also emits a pseudo-entry for a detached HEAD
+        // ("(HEAD detached at 1234abc)"); it has no refs/ path and is not checkoutable.
+        if !full_ref.starts_with("refs/") {
+            continue;
+        }
+        // Classify by where the ref lives, not by looking for a slash in the name —
+        // a local branch may legitimately be called "feature/login".
+        let is_remote = full_ref.starts_with("refs/remotes/");
+        let name = parts[1].to_string();
+        let hash = parts.get(2).filter(|s| !s.is_empty()).map(|s| s.to_string());
         let tracking = parts.get(3).filter(|s| !s.is_empty()).map(|s| s.to_string());
         let is_current = parts.get(4).map(|s| s.contains('*')).unwrap_or(false);
-        let is_remote = name.starts_with("origin/") || name.contains('/');
+        let msg = parts.get(5).filter(|s| !s.is_empty()).map(|s| s.to_string());
         branches.push(GitBranch {
             name,
             is_local: !is_remote,
@@ -698,3 +760,77 @@ fn parse_worktrees(output: &str) -> Vec<GitWorktree> {
 
 /// diff-view helper reused by the view models.
 pub use diff::{parse as parse_diff, synthesize_added};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Real `git branch -a --format=…` output from a clone: note the
+    // refs/remotes/origin/HEAD line, whose short name is the bare remote "origin".
+    const BRANCH_OUTPUT: &str = "refs/heads/feature/login\tfeature/login\t60754c6\t\t*\tadd login page\n\
+                                 refs/heads/main\tmain\tf81fd97\torigin/main\t \twrite post 6\n\
+                                 refs/remotes/origin/HEAD\torigin\tf81fd97\t\t \twrite post 6\n\
+                                 refs/remotes/origin/main\torigin/main\tf81fd97\t\t \twrite post 6";
+
+    #[test]
+    fn remote_head_pointer_is_not_a_branch() {
+        let b = parse_branches(BRANCH_OUTPUT);
+        assert_eq!(b.len(), 3, "origin/HEAD must not become a branch entry");
+        assert!(b.iter().all(|x| x.name != "origin"));
+    }
+
+    #[test]
+    fn local_branch_with_slash_stays_local() {
+        let b = parse_branches(BRANCH_OUTPUT);
+        let feature = b.iter().find(|x| x.name == "feature/login").unwrap();
+        assert!(feature.is_local && !feature.is_remote);
+        assert!(feature.is_current);
+        assert_eq!(feature.display_name(), "feature/login");
+        assert_eq!(feature.last_commit_message.as_deref(), Some("add login page"));
+
+        let remote = b.iter().find(|x| x.name == "origin/main").unwrap();
+        assert!(remote.is_remote && !remote.is_local);
+        assert_eq!(remote.display_name(), "main");
+    }
+
+    #[test]
+    fn detached_head_pseudo_entry_is_skipped() {
+        let out = "(HEAD detached at 38f0996)\t(HEAD detached at 38f0996)\t38f0996\t\t*\twrite post 4\n\
+                   refs/heads/main\tmain\tf81fd97\torigin/main\t \twrite post 6";
+        let b = parse_branches(out);
+        assert_eq!(b.len(), 1);
+        assert_eq!(b[0].name, "main");
+    }
+
+    #[test]
+    fn refs_are_classified_by_namespace() {
+        let refs = parse_refs(
+            "HEAD -> refs/heads/main, tag: refs/tags/v1.0, refs/remotes/origin/main, \
+             refs/remotes/origin/HEAD, refs/heads/feature/login, refs/stash",
+        );
+        let names: Vec<_> = refs.iter().map(|r| (r.name.as_str(), r.ref_type, r.is_head)).collect();
+        assert_eq!(
+            names,
+            vec![
+                ("main", RefType::LocalBranch, true),
+                ("v1.0", RefType::Tag, false),
+                ("origin/main", RefType::RemoteBranch, false),
+                ("feature/login", RefType::LocalBranch, false),
+            ]
+        );
+    }
+
+    #[test]
+    fn short_decoration_still_parses() {
+        let refs = parse_refs("HEAD -> main, tag: v1.0, origin/main, origin/HEAD");
+        let names: Vec<_> = refs.iter().map(|r| (r.name.as_str(), r.ref_type)).collect();
+        assert_eq!(
+            names,
+            vec![
+                ("main", RefType::LocalBranch),
+                ("v1.0", RefType::Tag),
+                ("origin/main", RefType::RemoteBranch),
+            ]
+        );
+    }
+}

@@ -108,7 +108,17 @@ impl RepoController {
             pill_box.set_halign(gtk::Align::End);
             pill_box.set_valign(gtk::Align::Center);
             pill_box.set_margin_end(6);
-            for r in row.refs() {
+            // Git lists decorations in whatever order it walked the refs; sort them so
+            // the pills are predictable, and so the checked-out branch's green pill
+            // ends up nearest the graph node — the end a narrow column never clips.
+            let mut refs = row.refs().to_vec();
+            refs.sort_by_key(|r| match (r.is_head, r.ref_type) {
+                (true, _) => 3,
+                (_, RefType::LocalBranch) => 2,
+                (_, RefType::RemoteBranch) => 1,
+                (_, RefType::Tag) => 0,
+            });
+            for r in &refs {
                 pill_box.append(&ref_pill(r));
             }
             branch_cell.add_overlay(&pill_box);

@@ -80,7 +80,10 @@ impl RepoController {
         let filter = st.sidebar_filter.to_lowercase();
         let matches = |name: &str| filter.is_empty() || name.to_lowercase().contains(&filter);
 
-        let local: Vec<GitBranch> = st.local_branches().into_iter().filter(|b| matches(&b.name)).collect();
+        let mut local: Vec<GitBranch> = st.local_branches().into_iter().filter(|b| matches(&b.name)).collect();
+        // Checked-out branch first (the one wearing the green check), the rest keep
+        // git's alphabetical order.
+        local.sort_by_key(|b| !b.is_current);
         let remote: Vec<GitBranch> = st.remote_branches().into_iter().filter(|b| matches(&b.name)).collect();
         let local_count = st.local_branches().len();
         let remote_count = st.remote_branches().len();

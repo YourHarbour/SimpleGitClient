@@ -1,7 +1,8 @@
 //! Commit-graph lane layout — direct port of `Models/GitGraph.swift`.
 //!
 //! Assigns every commit a lane and produces gap-free connecting edges. Requires
-//! the commit list to be in `--topo-order` (parents after children).
+//! the commit list to list parents after children — both `--date-order` (what
+//! `GitService::log` asks for) and `--topo-order` guarantee that.
 
 use super::models::GitCommit;
 
