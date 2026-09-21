@@ -32,6 +32,16 @@ struct DiffViewerView: View {
                 .foregroundStyle(Theme.textPrimary)
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .contextMenu {
+                    Button("Copy Path") { Clipboard.copy(dvm.filePath, label: "Copied path") }
+                    Button("Copy Full Path") {
+                        Clipboard.copy(fullPath(repo: repo, path: dvm.filePath), label: "Copied path")
+                    }
+                    if let diff = dvm.diffFile, !diff.isBinary {
+                        Divider()
+                        Button("Copy Whole Diff") { Clipboard.copy(diff.patchText, label: "Copied diff") }
+                    }
+                }
 
             Spacer()
 
@@ -80,6 +90,30 @@ struct DiffViewerView: View {
                 .padding(.horizontal, 6).padding(.vertical, 4)
             }
             .buttonStyle(ToolbarButtonStyle(cornerRadius: 5))
+
+            // 整块复制。行内文字本身可以直接拖选 + ⌘C(那里是系统自带的文本菜单)。
+            Menu {
+                if let diff = dvm.diffFile, !diff.isBinary, !diff.hunks.isEmpty {
+                    Button("Copy Whole Diff") { Clipboard.copy(diff.patchText, label: "Copied diff") }
+                }
+                if let content = dvm.fileContent, !content.isEmpty {
+                    Button("Copy Whole File") { Clipboard.copy(content, label: "Copied file") }
+                }
+                Divider()
+                Button("Copy Path") { Clipboard.copy(dvm.filePath, label: "Copied path") }
+                Button("Copy Full Path") {
+                    Clipboard.copy(fullPath(repo: repo, path: dvm.filePath), label: "Copied path")
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "doc.on.doc").font(.system(size: 11))
+                    Text("Copy").font(.system(size: 12))
+                }
+                .foregroundStyle(Theme.textSecondary)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Copy the whole diff / file / path")
 
             Text(dvm.isStaged ? "Staged" : "Unstaged")
                 .font(.system(size: 12))
@@ -153,11 +187,14 @@ struct DiffViewerView: View {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(Array(diff.hunks.enumerated()), id: \.element.id) { idx, hunk in
-                                DiffHunkBlock(hunk: hunk, wrap: dvm.wrapLines, showWhitespace: dvm.showWhitespace)
+                                DiffHunkBlock(hunk: hunk, wrap: dvm.wrapLines, showWhitespace: dvm.showWhitespace,
+                                              wholeDiff: diff)
                                     .id("hunk-\(idx)")
                             }
                         }
                     }
+                    // 可以直接拖选 diff 文本并 ⌘C;整块复制用右键菜单
+                    .textSelection(.enabled)
                     .background(Theme.bgApp)
                     .onChange(of: currentHunk) { _, new in
                         withAnimation { proxy.scrollTo("hunk-\(new)", anchor: .top) }
@@ -195,6 +232,10 @@ struct DiffViewerView: View {
                 }
                 .padding(.vertical, 6)
             }
+            .textSelection(.enabled)
+            .contextMenu {
+                Button("Copy Whole File") { Clipboard.copy(content, label: "Copied file") }
+            }
             .background(Theme.bgApp)
         } else {
             centeredMessage("File View unavailable (binary or empty file).")
@@ -213,6 +254,11 @@ struct DiffViewerView: View {
         currentHunk = min(max(0, currentHunk + delta), count - 1)
     }
 
+    private func fullPath(repo: RepoViewModel, path: String) -> String {
+        guard let repoPath = repo.gitService.repoPath else { return path }
+        return (repoPath as NSString).appendingPathComponent(path)
+    }
+
     private func openInEditor(repo: RepoViewModel, path: String) {
         guard let repoPath = repo.gitService.repoPath else { return }
         let full = (repoPath as NSString).appendingPathComponent(path)
@@ -226,19 +272,35 @@ struct DiffHunkBlock: View {
     let hunk: DiffHunk
     let wrap: Bool
     let showWhitespace: Bool
+    let wholeDiff: DiffFile?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // 区块头 @@ ... @@
+            // @@ 头不参与文字选中 —— 可选中的文字会被系统文本菜单接管,
+            // 右键就弹不出下面这个「复制整块」菜单了。
             Text(hunk.header)
                 .font(Theme.codeFontFallback)
                 .foregroundStyle(Theme.textMuted)
                 .padding(.horizontal, 12).padding(.vertical, 3)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Theme.bgElevated)
+                .textSelection(.disabled)
+                .contentShape(Rectangle())
+                .help("Right-click to copy this hunk")
 
             ForEach(hunk.lines) { line in
                 DiffLineRow(line: line, wrap: wrap, showWhitespace: showWhitespace)
+            }
+        }
+        .contextMenu {
+            Button("Copy Hunk") { Clipboard.copy(hunk.patchText, label: "Copied hunk") }
+            Button("Copy Hunk (no +/- markers)") {
+                Clipboard.copy(hunk.plainText, label: "Copied hunk")
+            }
+            if let wholeDiff {
+                Divider()
+                Button("Copy Whole Diff") { Clipboard.copy(wholeDiff.patchText, label: "Copied diff") }
             }
         }
     }

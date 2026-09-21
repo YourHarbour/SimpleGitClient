@@ -5,6 +5,8 @@ struct LeftSidebarView: View {
     @Environment(AppViewModel.self) private var appVM
     @State private var filterText = ""
     @State private var expanded: Set<String> = ["LOCAL", "REMOTE"]
+    /// 非 nil = 这个分支未完全合并,正在问用户要不要强删。
+    @State private var forceDeleteTarget: String?
 
     var body: some View {
         Group {
@@ -12,6 +14,22 @@ struct LeftSidebarView: View {
         }
         .background(Theme.bgPanel)
         .overlay(alignment: .trailing) { Rectangle().fill(Theme.border).frame(width: 1) }
+        .confirmationDialog(
+            "Delete “\(forceDeleteTarget ?? "")”?",
+            isPresented: Binding(get: { forceDeleteTarget != nil },
+                                 set: { if !$0 { forceDeleteTarget = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Force Delete", role: .destructive) {
+                if let name = forceDeleteTarget {
+                    Task { _ = await appVM.activeRepo?.deleteBranchChecked(name, force: true) }
+                }
+                forceDeleteTarget = nil
+            }
+            Button("Cancel", role: .cancel) { forceDeleteTarget = nil }
+        } message: {
+            Text("“\(forceDeleteTarget ?? "")” isn't fully merged. Force-deleting it loses the commits that exist only on this branch.")
+        }
     }
 
     // MARK: - §6.1 Expanded
@@ -115,11 +133,7 @@ struct LeftSidebarView: View {
     }
 
     private func branchRow(_ branch: GitBranch, repo: RepoViewModel) -> some View {
-        Button(action: {
-            if !branch.isCurrent && branch.isLocal {
-                Task { try? await repo.checkoutBranch(branch.name) }
-            }
-        }) {
+        Button(action: { checkout(branch, repo: repo) }) {
             HStack(spacing: 8) {
                 Color.clear.frame(width: 18)
                 Image(systemName: branch.isCurrent ? "checkmark" : "arrow.triangle.branch")
@@ -137,11 +151,43 @@ struct LeftSidebarView: View {
         }
         .buttonStyle(HoverRowStyle())
         .contextMenu {
+            if !branch.isCurrent {
+                // 远程分支没有本地同名分支时,检出等于「建立跟踪分支」—— 标题写清楚。
+                Button(checkoutLabel(branch, repo: repo)) { checkout(branch, repo: repo) }
+                Divider()
+            }
+            Button("Copy Branch Name") { Clipboard.copy(branch.name, label: "Copied branch name") }
             if branch.isLocal && !branch.isCurrent {
-                Button("Checkout") { Task { try? await repo.checkoutBranch(branch.name) } }
-                Button("Delete", role: .destructive) { Task { try? await repo.deleteBranch(branch.name) } }
+                Divider()
+                Button("Delete", role: .destructive) {
+                    Task {
+                        // 未合并时 git 会拒绝 -d;弹确认框问是否 -D,而不是静默失败。
+                        if await repo.deleteBranchChecked(branch.name) == .needsForce {
+                            forceDeleteTarget = branch.name
+                        }
+                    }
+                }
             }
         }
+    }
+
+    /// 点分支行 = 切过去。本地分支直接 switch;远程分支建/切同名本地跟踪分支。
+    private func checkout(_ branch: GitBranch, repo: RepoViewModel) {
+        guard !branch.isCurrent else { return }
+        Task {
+            await repo.run("Checkout") {
+                branch.isLocal
+                    ? try await repo.checkoutBranch(branch.name)
+                    : try await repo.checkoutRemoteBranch(branch)
+            }
+        }
+    }
+
+    private func checkoutLabel(_ branch: GitBranch, repo: RepoViewModel) -> String {
+        guard branch.isRemote else { return "Checkout" }
+        let hasLocal = repo.localBranches.contains { $0.name == branch.displayName }
+        return hasLocal ? "Checkout \u{201c}\(branch.displayName)\u{201d}"
+                        : "Checkout as Local Branch \u{201c}\(branch.displayName)\u{201d}"
     }
 
     private func simpleRow(icon: String, text: String, color: Color) -> some View {

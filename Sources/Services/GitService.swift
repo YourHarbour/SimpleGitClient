@@ -325,6 +325,10 @@ class GitService {
             let tracking = parts[4].isEmpty ? nil : parts[4]
             let isCurrent = parts[5].contains("*")
             let isRemote = refName.hasPrefix("refs/remotes/")
+            // refs/remotes/<remote>/HEAD 是指向默认分支的符号引用,不是可检出的分支。
+            // 注意它的 %(refname:short) 就是 "origin"(没有 /HEAD),所以必须按 refname 过滤 ——
+            // 否则 REMOTE 分组里会多出一行叫 "origin" 的假分支,点了当然没反应。
+            if isRemote && refName.hasSuffix("/HEAD") { continue }
             branches.append(GitBranch(
                 name: name, isLocal: !isRemote, isRemote: isRemote,
                 isCurrent: isCurrent, trackingBranch: tracking,
@@ -345,6 +349,12 @@ class GitService {
     
     func createBranch(name: String) async throws {
         _ = try await execute(["switch", "-c", name])
+    }
+
+    /// 建立一个跟踪远程分支的本地分支并切过去(`git switch -c <local> --track <remote>`)。
+    /// 这是 GitKraken / Fork 里点远程分支时的行为。
+    func checkoutTracking(remote: String, local: String) async throws {
+        _ = try await execute(["switch", "-c", local, "--track", remote])
     }
     
     func deleteBranch(name: String, force: Bool = false) async throws {
@@ -403,6 +413,12 @@ class GitService {
         try content.write(toFile: ignorePath, atomically: true, encoding: .utf8)
     }
     
+    /// 停止跟踪但保留工作区文件(git rm --cached)。已跟踪的文件加进 .gitignore 是不生效的,
+    /// 必须先从索引里移掉;这一步会留下一个「已暂存的删除」,提交后规则才真正生效。
+    func untrack(_ path: String) async throws {
+        _ = try await execute(["rm", "--cached", "-r", "--", path])
+    }
+
     // MARK: - Diff
     
     func getDiff(file: String?, staged: Bool = false) async throws -> String {
@@ -467,7 +483,10 @@ class GitService {
 
     // MARK: - Remote
     
+    /// Pull。`git pull` 自己只 fetch 当前分支的上游,所以先做一次 `fetch --prune --all`,
+    /// 让其它分支的 ahead/behind 和已删除的远程分支也一起更新(GitKraken / Fork 都是这个行为)。
     func pull(rebase: Bool = false) async throws {
+        try? await fetch()
         var args = ["pull"]
         if rebase { args.append("--rebase") }
         _ = try await execute(args)
@@ -488,6 +507,12 @@ class GitService {
         _ = try await execute(args)
     }
     
+    /// 是否配置了远程(没有远程就不该做后台自动 fetch)。
+    func hasRemote() async -> Bool {
+        guard let output = try? await execute(["remote"]) else { return false }
+        return !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     func clone(url: String, to path: String) async throws {
         _ = try await execute(["clone", url, path], at: (path as NSString).deletingLastPathComponent)
     }

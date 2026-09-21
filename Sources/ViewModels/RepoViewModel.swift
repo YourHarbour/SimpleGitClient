@@ -37,6 +37,10 @@ class RepoViewModel {
 
     private var fileWatcher: FileWatcherService?
     private var externalRefreshTask: Task<Void, Never>?
+    private var autoFetchTask: Task<Void, Never>?
+
+    /// 最近一次(自动或手动)fetch 成功的时间,给工具栏显示用。
+    private(set) var lastFetchDate: Date?
 
     // Undo/Redo:仅针对「提交」。redoStack 保存被 Undo 掉的提交 hash(可 reset --soft 回去)。
     private(set) var redoStack: [String] = []
@@ -62,6 +66,7 @@ class RepoViewModel {
     init(gitService: GitService) {
         self.gitService = gitService
         setupFileWatcher()
+        restartAutoFetch()
     }
 
     private func setupFileWatcher() {
@@ -95,7 +100,42 @@ class RepoViewModel {
 
     func cleanup() {
         externalRefreshTask?.cancel()
+        autoFetchTask?.cancel()
         fileWatcher?.stop()
+    }
+
+    // MARK: - 后台自动 fetch
+
+    /// 后台定时 fetch —— 别的 Git 客户端(GitKraken / Fork / GitHub Desktop)都这么做:
+    /// 远程的 ahead/behind 不靠手动点 Fetch 才更新。静默执行:不弹进度条、不弹 toast、
+    /// 出错(离线 / 缺 token)直接吞掉,下一轮再试。
+    func restartAutoFetch() {
+        autoFetchTask?.cancel()
+        guard AppSettings.autoFetchEnabled else { return }
+        autoFetchTask = Task { @MainActor [weak self] in
+            // 开仓库的头几秒让首次 refresh 先跑完
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            while !Task.isCancelled {
+                guard let self else { return }
+                await self.autoFetchOnce()
+                let interval = AppSettings.autoFetchInterval
+                try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+            }
+        }
+    }
+
+    @MainActor
+    private func autoFetchOnce() async {
+        guard AppSettings.autoFetchEnabled else { return }
+        guard await gitService.hasRemote() else { return }
+        do {
+            try await gitService.fetch()
+            lastFetchDate = Date()
+            await refreshBranches()
+            await refreshLog()
+        } catch {
+            // 离线 / 未授权:静默跳过,不打扰用户
+        }
     }
 
     @MainActor
@@ -228,9 +268,10 @@ class RepoViewModel {
     // MARK: - Remote / branches
 
     @MainActor func pull(rebase: Bool = false) async throws {
-        try await ActivityCenter.shared.track("Pulling…") {
+        try await ActivityCenter.shared.track("Fetching & pulling…") {
             try await gitService.pull(rebase: rebase); await refresh()
         }
+        lastFetchDate = Date()
         ToastCenter.shared.show("Pulled from origin", style: .success)
     }
     @MainActor func push() async throws {
@@ -306,6 +347,7 @@ class RepoViewModel {
         try await ActivityCenter.shared.track("Fetching…") {
             try await gitService.fetch(); await refresh()
         }
+        lastFetchDate = Date()
         ToastCenter.shared.show("Fetched from remotes", style: .success)
     }
     @MainActor func stash(message: String? = nil) async throws {
@@ -327,6 +369,29 @@ class RepoViewModel {
         }
         ToastCenter.shared.show("Switched to \(name)", style: .success)
     }
+    /// 检出一个远程分支。本地已有同名分支 → 直接切过去;否则建一个跟踪它的本地分支。
+    /// (远程分支本身是只读引用,直接 `switch origin/x` 会进 detached HEAD,不是用户想要的。)
+    @MainActor func checkoutRemoteBranch(_ branch: GitBranch) async throws {
+        let local = branch.displayName
+        let existing = localBranches.first { $0.name == local }
+        if existing?.isCurrent == true {
+            ToastCenter.shared.show("Already on \(local)", style: .info)
+            return
+        }
+        redoStack.removeAll()
+        try await ActivityCenter.shared.track("Switching to \(local)…") {
+            if existing != nil {
+                try await gitService.checkout(branch: local)
+            } else {
+                try await gitService.checkoutTracking(remote: branch.name, local: local)
+            }
+            await refresh()
+        }
+        ToastCenter.shared.show(
+            existing != nil ? "Switched to \(local)" : "Created \(local) tracking \(branch.name)",
+            style: .success)
+    }
+
     @MainActor func createBranch(_ name: String) async throws {
         try await gitService.createBranch(name: name); await refresh()
         ToastCenter.shared.show("Created branch \(name)", style: .success)
@@ -334,6 +399,32 @@ class RepoViewModel {
     @MainActor func deleteBranch(_ name: String, force: Bool = false) async throws {
         try await gitService.deleteBranch(name: name, force: force); await refreshBranches()
         ToastCenter.shared.show("Deleted branch \(name)", style: .info)
+    }
+
+    /// 删除分支的「有反馈」版本。`git branch -d` 在分支未完全合并时会失败 —— 视图层过去用
+    /// `try?` 吞掉了错误,点 Delete 完全没反应。现在:未合并 → 交回给视图弹二次确认(强删),
+    /// 其它失败 → 红 toast。
+    @MainActor
+    func deleteBranchChecked(_ name: String, force: Bool = false) async -> BranchDeleteOutcome {
+        do {
+            try await deleteBranch(name, force: force)
+            return .deleted
+        } catch {
+            let msg = error.localizedDescription.lowercased()
+            if !force, msg.contains("not fully merged") {
+                return .needsForce
+            }
+            showErr("Delete branch", error)
+            return .failed
+        }
+    }
+
+    /// 跑一个可能抛错的 git 动作,失败时弹红 toast。视图里凡是 `try? await repo.xxx()`
+    /// 都该换成这个 —— 否则 git 拒绝时按钮看起来像坏了(切分支有本地改动、建分支名重复等)。
+    @MainActor
+    @discardableResult
+    func run(_ label: String, _ op: () async throws -> Void) async -> Bool {
+        do { try await op(); return true } catch { showErr(label, error); return false }
     }
 
     // MARK: - Diff (working tree)
@@ -406,12 +497,38 @@ class RepoViewModel {
     }
 
     @MainActor
-    func addToGitignore(_ pattern: String) async {
+    /// 把规则写进 .gitignore。`trackedFile` 非空表示这条规则是从一个「已跟踪」的文件上发起的 ——
+    /// 此时 .gitignore 不会生效(git 只忽略未跟踪的文件),要额外提醒用户去「Stop Tracking」。
+    func addToGitignore(_ pattern: String, trackedFile: String? = nil) async {
         do {
             try gitService.appendToGitignore(pattern)
             await refreshStatus()
-            ToastCenter.shared.show("Added to .gitignore: \(pattern)", style: .success)
+            if let trackedFile {
+                let name = (trackedFile as NSString).lastPathComponent
+                ToastCenter.shared.show(
+                    "Added \(pattern) to .gitignore — but \(name) is already tracked, so it keeps showing up. Use “Stop Tracking” on it.",
+                    style: .info)
+            } else {
+                ToastCenter.shared.show("Added to .gitignore: \(pattern)", style: .success)
+            }
         } catch { showErr("Update .gitignore", error) }
+    }
+
+    /// git rm --cached:停止跟踪但保留本地文件。留下一个「已暂存的删除」,提交后才真正生效。
+    @MainActor
+    func untrackFile(_ path: String) async {
+        do {
+            try await gitService.untrack(path)
+            await refresh()
+            let name = (path as NSString).lastPathComponent
+            ToastCenter.shared.show("Stopped tracking \(name) — commit the staged removal to finish", style: .success)
+        } catch { showErr("Stop tracking", error) }
+    }
+
+    /// 文件在磁盘上的绝对路径(复制路径 / 打开用)。
+    func absolutePath(of path: String) -> String {
+        guard let repoPath = gitService.repoPath else { return path }
+        return (repoPath as NSString).appendingPathComponent(path)
     }
 
     // MARK: - Errors
@@ -423,6 +540,8 @@ class RepoViewModel {
         print("[GitPilot] \(ctx) error: \(error)")
     }
 }
+
+enum BranchDeleteOutcome { case deleted, needsForce, failed }
 
 enum CommitButtonState {
     case noStagedFiles, noMessage, ready

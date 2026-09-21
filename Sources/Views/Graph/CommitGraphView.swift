@@ -159,6 +159,22 @@ struct CommitGraphRow: View {
             if row.isWIP { repo.selectWIPRow() }
             else { Task { await repo.selectCommitRow(row.id) } }
         }
+        .contextMenu {
+            if let commit = row.commit {
+                Button("Copy Commit Message") {
+                    Clipboard.copy(commit.fullMessage, label: "Copied commit message")
+                }
+                Button("Copy SHA") { Clipboard.copy(commit.id, label: "Copied SHA") }
+                Button("Copy Short SHA") { Clipboard.copy(commit.shortHash, label: "Copied SHA") }
+                Button("Copy Author") {
+                    Clipboard.copy("\(commit.author) <\(commit.authorEmail)>", label: "Copied author")
+                }
+                Divider()
+                Button("Copy Commit Info") {
+                    Clipboard.copy(commit.copyableSummary, label: "Copied commit info")
+                }
+            }
+        }
     }
 
     // MARK: Branch / tag pills

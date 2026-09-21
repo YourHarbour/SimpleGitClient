@@ -74,7 +74,13 @@ class AppViewModel {
     }
 
     /// 保存当前打开的仓库 tab 与激活 tab(供下次启动恢复)。
+    /// `--open` / `SIMPLEGITCLIENT_OPEN` 启动的是一次性的脚本化会话(测试用)。
+    /// 那种会话**不能**写 openTabs —— 否则一次可视化验证就把用户真实的 tab 列表
+    /// 覆盖成了临时测试仓库的路径。
+    private(set) var isScriptedSession = false
+
     private func persistTabs() {
+        guard !isScriptedSession else { return }
         let paths = tabs.compactMap { $0.path }
         UserDefaults.standard.set(paths, forKey: openTabsKey)
         UserDefaults.standard.set(activeTab?.path ?? "", forKey: activeTabPathKey)
@@ -94,7 +100,11 @@ class AppViewModel {
         if explicit == nil, let env = ProcessInfo.processInfo.environment["SIMPLEGITCLIENT_OPEN"], !env.isEmpty {
             explicit = env
         }
-        if let explicit, !explicit.isEmpty { await openRepository(at: explicit); return }
+        if let explicit, !explicit.isEmpty {
+            isScriptedSession = true          // 见 persistTabs():这种会话不落盘
+            await openRepository(at: explicit)
+            return
+        }
 
         // 2) 恢复上次打开的 tab(过滤掉已失效的仓库,避免启动时报错)
         let saved = UserDefaults.standard.stringArray(forKey: openTabsKey) ?? []
@@ -136,6 +146,22 @@ class AppViewModel {
         addRecent(path)
         persistTabs()
         await repoVM.refresh()
+    }
+
+    // MARK: - 自动 fetch 开关(作用于所有已打开的 tab)
+
+    func setAutoFetch(enabled: Bool) {
+        AppSettings.autoFetchEnabled = enabled
+        for tab in tabs { tab.viewModel?.restartAutoFetch() }
+        ToastCenter.shared.show(
+            enabled ? "Auto-fetch every \(AppSettings.intervalLabel(AppSettings.autoFetchInterval))" : "Auto-fetch off",
+            style: .info)
+    }
+
+    func setAutoFetchInterval(_ seconds: TimeInterval) {
+        AppSettings.autoFetchInterval = seconds
+        for tab in tabs { tab.viewModel?.restartAutoFetch() }
+        ToastCenter.shared.show("Auto-fetch every \(AppSettings.intervalLabel(seconds))", style: .info)
     }
 
     func showOpenDialog() {

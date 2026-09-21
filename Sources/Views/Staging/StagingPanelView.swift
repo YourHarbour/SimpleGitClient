@@ -214,17 +214,28 @@ struct FileRowView: View {
                 Task { isStaged ? await repo.unstageFile(file.path) : await repo.stageFile(file.path) }
             }
             Divider()
+            Button("Copy Path") { Clipboard.copy(file.path, label: "Copied path") }
+            Button("Copy Full Path") { Clipboard.copy(repo.absolutePath(of: file.path), label: "Copied path") }
+            Button("Copy File Name") { Clipboard.copy(file.fileName, label: "Copied file name") }
+            Divider()
             Button("Ignore this file") {
-                Task { await repo.addToGitignore("/" + file.path) }
+                Task { await repo.addToGitignore("/" + file.path, trackedFile: trackedPath) }
             }
             if !ignoreDir.isEmpty {
                 Button("Ignore folder “\(ignoreDir)/”") {
-                    Task { await repo.addToGitignore("/" + ignoreDir + "/") }
+                    Task { await repo.addToGitignore("/" + ignoreDir + "/", trackedFile: trackedPath) }
                 }
             }
             if !ignoreExt.isEmpty {
                 Button("Ignore all “*.\(ignoreExt)”") {
-                    Task { await repo.addToGitignore("*." + ignoreExt) }
+                    Task { await repo.addToGitignore("*." + ignoreExt, trackedFile: trackedPath) }
+                }
+            }
+            // .gitignore 只对「未跟踪」的文件生效。已跟踪的文件必须先停止跟踪,
+            // 否则加了忽略规则它照样出现在改动列表里。
+            if isTracked {
+                Button("Stop Tracking (keep local file)") {
+                    Task { await repo.untrackFile(file.path) }
                 }
             }
             Divider()
@@ -233,6 +244,10 @@ struct FileRowView: View {
             }
         }
     }
+
+    /// 已跟踪 = 不是 untracked;.gitignore 对它无效,所以菜单里要多给一个「停止跟踪」。
+    private var isTracked: Bool { file.status != .untracked }
+    private var trackedPath: String? { isTracked ? file.path : nil }
 
     private var ignoreDir: String { (file.path as NSString).deletingLastPathComponent }
     private var ignoreExt: String { (file.path as NSString).pathExtension }

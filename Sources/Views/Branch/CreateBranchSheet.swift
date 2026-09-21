@@ -50,8 +50,9 @@ struct CreateBranchSheet: View {
     private func create() {
         guard !trimmed.isEmpty, let repo = appVM.activeRepo else { return }
         Task {
-            try? await repo.createBranch(trimmed)
-            await MainActor.run { appVM.showCreateBranchSheet = false }
+            // 失败(名字重复 / 非法)时保持弹窗打开,让用户改名字;红 toast 说明原因。
+            let ok = await repo.run("Create branch") { try await repo.createBranch(trimmed) }
+            if ok { await MainActor.run { appVM.showCreateBranchSheet = false } }
         }
     }
 }

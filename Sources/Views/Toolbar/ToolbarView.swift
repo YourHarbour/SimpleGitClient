@@ -54,7 +54,7 @@ struct ToolbarView: View {
                     DropdownSelector(title: repo.currentBranch.isEmpty ? "main" : repo.currentBranch) {
                         ForEach(repo.localBranches) { branch in
                             Button(action: {
-                                Task { try? await repo.checkoutBranch(branch.name) }
+                                Task { await repo.run("Checkout") { try await repo.checkoutBranch(branch.name) } }
                             }) {
                                 HStack {
                                     if branch.isCurrent {
@@ -119,9 +119,29 @@ struct ToolbarView: View {
 
             toolbarDivider
 
-            // Fetch
+            // Fetch(右键:自动 fetch 开关 / 间隔)
             toolbarButton(icon: "arrow.triangle.2.circlepath", label: "Fetch") {
                 runRemote(.fetch, label: "Fetch") { try await $0.fetch() }
+            }
+            .help(fetchHelp)
+            .contextMenu {
+                Button("Fetch Now") {
+                    runRemote(.fetch, label: "Fetch") { try await $0.fetch() }
+                }
+                Divider()
+                Toggle("Auto-fetch in Background", isOn: Binding(
+                    get: { AppSettings.autoFetchEnabled },
+                    set: { appVM.setAutoFetch(enabled: $0) }))
+                Menu("Auto-fetch Every") {
+                    ForEach(AppSettings.autoFetchIntervalChoices, id: \.self) { seconds in
+                        Button(action: { appVM.setAutoFetchInterval(seconds) }) {
+                            HStack {
+                                if AppSettings.autoFetchInterval == seconds { Image(systemName: "checkmark") }
+                                Text(AppSettings.intervalLabel(seconds))
+                            }
+                        }
+                    }
+                }
             }
 
             toolbarDivider
@@ -134,9 +154,7 @@ struct ToolbarView: View {
             // Stash
             toolbarButton(icon: "tray.and.arrow.down", label: "Stash") {
                 guard let repo = appVM.activeRepo else { return }
-                Task {
-                    try? await repo.stash()
-                }
+                Task { await repo.run("Stash") { try await repo.stash() } }
             }
 
             // Pop
@@ -146,11 +164,21 @@ struct ToolbarView: View {
                 disabled: (appVM.activeRepo?.stashCount ?? 0) == 0
             ) {
                 guard let repo = appVM.activeRepo else { return }
-                Task {
-                    try? await repo.stashPop()
-                }
+                Task { await repo.run("Pop stash") { try await repo.stashPop() } }
             }
         }
+    }
+
+    /// Fetch 按钮的 tooltip:自动 fetch 状态 + 上次 fetch 时间。
+    private var fetchHelp: String {
+        var parts = ["Fetch from all remotes"]
+        parts.append(AppSettings.autoFetchEnabled
+                     ? "auto every \(AppSettings.intervalLabel(AppSettings.autoFetchInterval))"
+                     : "auto-fetch off")
+        if let last = appVM.activeRepo?.lastFetchDate {
+            parts.append("last \(last.formatted(date: .omitted, time: .shortened))")
+        }
+        return parts.joined(separator: " — ")
     }
 
     /// 执行一个远程操作(pull/push/fetch)。若因缺 token 报 `authenticationRequired`,

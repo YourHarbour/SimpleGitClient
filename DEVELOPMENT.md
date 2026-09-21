@@ -51,7 +51,9 @@ open ./dist/SimpleGitClient.app
   draws a teal line-art commit graph) → `Resources/AppIcon.icns`. `build_app.sh` auto-generates it
   if missing.
 - **Test hook**: launch with `--open <repo-path>` (or env `SIMPLEGITCLIENT_OPEN`) to auto-open a repo
-  and skip session restore. Used for scripted/visual testing.
+  and skip session restore. Used for scripted/visual testing. Such a launch sets
+  `AppViewModel.isScriptedSession`, which makes `persistTabs()` a no-op — a test run must never
+  overwrite the user's real `SimpleGitClient.openTabs` with a throwaway fixture path (it did, twice).
 - For computer-use screenshot verification, request screen access by **bundle id**
   `com.simplegitclient.app` (the display name does not resolve).
 
@@ -87,6 +89,38 @@ open ./dist/SimpleGitClient.app
 6. **Untracked files.** `git status` uses `--untracked-files=all` to list individual files (matches
    the spec / GitKraken), so the staging list uses `LazyVStack` to stay smooth with thousands of rows.
 
+7. **`.gitignore` never hides a *tracked* file** — that is git, not a bug in this app. The staging
+   context menu therefore (a) warns via toast when an "Ignore …" item is used on a tracked file, and
+   (b) offers **Stop Tracking (keep local file)** → `git rm --cached -r -- <path>`, which leaves a
+   staged deletion the user still has to commit. Don't "fix" the ignore items by filtering tracked
+   files out of `git status` — the file really is modified and must stay visible.
+
+8. **`.textSelection(.enabled)` steals right-click.** Selectable text gets AppKit's own text menu
+   (Look Up / Copy / Services), which shadows any `.contextMenu` on that view or its ancestors. So:
+   selectable regions (diff lines, file view, commit detail) rely on drag-select + ⌘C, and every
+   *bulk* copy command lives somewhere non-selectable — the diff toolbar's **Copy** menu, the
+   `@@` hunk header (explicitly `.textSelection(.disabled)`), or a row's own context menu. Adding
+   `.textSelection(.enabled)` to a row that has an `onTapGesture` will also eat the tap — don't.
+
+9. **Never `try? await repo.someGitAction()` in a view.** Every one of those was a button that
+   looked broken: `git branch -d` refuses an unmerged branch, `git checkout` refuses when local
+   changes would be overwritten, `createBranch` refuses a duplicate name — and the error went
+   nowhere, so the click did nothing at all. Use `RepoViewModel.run("Label") { try await … }`
+   (red toast on failure, returns `Bool`) or a purpose-built wrapper like
+   `deleteBranchChecked(_:force:)`, which returns `.needsForce` for the not-fully-merged case so the
+   sidebar can offer **Force Delete** (`-D`) in a `confirmationDialog` instead of failing silently.
+
+10. **`refs/remotes/<remote>/HEAD` must be filtered out of `getBranches`, by `refname`.** Its
+    `%(refname:short)` is just **`origin`** (not `origin/HEAD`), so a suffix check on the short name
+    misses it and the REMOTE section grows a fake branch row literally named "origin" that can't be
+    checked out. `parseRefs` already drops it for the graph pills; `getBranches` now does too.
+
+11. **A remote branch is not a checkout target.** `git switch origin/x` lands in detached HEAD, which
+    is never what the user meant. `RepoViewModel.checkoutRemoteBranch` switches to the same-named
+    local branch if one exists, otherwise creates a tracking branch
+    (`git switch -c <local> --track <remote>`), which is what GitKraken/Fork do on a remote-branch
+    click. Don't wire remote rows straight to `checkoutBranch`.
+
 ## 5. Auth (push / pull / fetch / clone) — Overleaf etc.
 
 - `GitService.execute` runs with `GIT_TERMINAL_PROMPT=0`. Auth failures are detected by matching
@@ -121,6 +155,22 @@ open ./dist/SimpleGitClient.app
 - **Staging**: collapsible Unstaged/Staged, Path/Tree modes, hover Stage/Unstage, discard, panel
   header with discard-all + "N file changes on <branch>". Right-click a file → **.gitignore** menu
   (ignore this file / folder / `*.ext`) + Discard.
+- **Branch checkout from the sidebar** works for local *and* remote rows (remote → local tracking
+  branch, see gotcha 11); the context menu's label says which will happen
+  (`Checkout "x"` vs `Checkout as Local Branch "x"`). Remote branches have **no delete** entry —
+  deleting one needs `git push origin --delete` and isn't implemented.
+- **Copy everywhere.** `Views/Common/CopySupport.swift` holds `Clipboard.copy` (pasteboard + toast),
+  the `.copyable(title, value)` modifier, and `DiffHunk/DiffFile.patchText` (rebuilds a unified diff
+  for the clipboard). Diff lines / file view / commit detail are drag-selectable (⌘C); copy commands
+  live on the commit-graph row menu (message / SHA / short SHA / author / full commit info), the
+  commit detail panel, staging + commit file rows (path / full path / name), sidebar branches, the
+  diff toolbar **Copy** menu, and the `@@` hunk header (hunk with or without +/- markers).
+- **Background auto-fetch** (`RepoViewModel.restartAutoFetch`, `AppSettings`): every 5 min by default,
+  first run 5s after a repo opens, silent (no spinner/toast, errors swallowed — `GIT_TERMINAL_PROMPT=0`
+  means it can't hang on credentials), skipped when the repo has no remote. Toggle + interval live in
+  the **Fetch** toolbar button's right-click menu; `AppViewModel.setAutoFetch(…)` restarts every tab's
+  loop. `GitService.pull` also runs `fetch --prune --all` first, so ahead/behind for *all* branches
+  updates on a pull, not just the current upstream.
 - **Commit composer**: summary + char counter (72 hint), description, **Commit options** (sign-off
   `-s`, allow-empty — both functional), state-driven commit button.
 - **Toasts** (bottom-left, solid green/red/blue, high-emphasis) for operation results;

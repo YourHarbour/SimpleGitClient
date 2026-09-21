@@ -13,6 +13,20 @@ struct GitCommit: Identifiable, Hashable {
     
     var isMerge: Bool { parentHashes.count > 1 }
     
+    /// 完整提交信息(标题 + 空行 + 正文)—— 复制时用。
+    var fullMessage: String {
+        body.isEmpty ? message : message + "\n\n" + body
+    }
+
+    /// 「Copy Commit Info」用的多行摘要,格式贴近 `git show --stat` 的头部。
+    var copyableSummary: String {
+        var out = "commit \(id)\n"
+        out += "Author: \(author) <\(authorEmail)>\n"
+        out += "Date:   \(date.formatted(date: .abbreviated, time: .standard))\n\n"
+        out += fullMessage
+        return out
+    }
+
     var truncatedBody: String {
         guard !body.isEmpty else { return "" }
         let firstLine = body.components(separatedBy: .newlines).first ?? body
