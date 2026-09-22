@@ -7,7 +7,7 @@ use gtk::glib;
 
 use crate::git::models::{DiffFile, DiffLine, DiffLineType};
 use crate::repo::RepoController;
-use crate::util::{clear_box, hbox, image, label, vbox};
+use crate::util::{clear_box, hbox, image, label, sel_label, vbox};
 
 impl RepoController {
     pub(crate) fn build_diff_container(self: &Rc<Self>) {
@@ -51,7 +51,7 @@ impl RepoController {
         let sym = label(status_sym, &[]);
         sym.set_markup(&format!("<span foreground='{status_color}' weight='bold'>{}</span>", glib::markup_escape_text(status_sym)));
         header.append(&sym);
-        let path_lbl = label(&filepath, &["primary-text"]);
+        let path_lbl = sel_label(&filepath, &["primary-text"]);
         path_lbl.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
         header.append(&path_lbl);
         let sp = gtk::Box::new(gtk::Orientation::Horizontal, 0);
@@ -156,6 +156,21 @@ impl RepoController {
         }));
         toolbar.append(&ws);
         toolbar.append(&wrap_btn);
+
+        // Bulk copy. Each row is its own label, so a mouse selection can only ever
+        // cover one line — copying a whole hunk or file needs an explicit action.
+        let (payload, what, tip) = if view_is_file {
+            (file_content.clone().unwrap_or_default(), "file contents", "Copy file contents")
+        } else {
+            (diff_file.as_ref().map(diff_as_text).unwrap_or_default(), "diff", "Copy diff")
+        };
+        let copy_btn = icon_toggle("doc.on.doc", false, tip);
+        copy_btn.set_sensitive(!payload.is_empty());
+        copy_btn.connect_clicked(glib::clone!(@weak self as this => move |_| {
+            this.copy_text(what, &payload);
+        }));
+        toolbar.append(&copy_btn);
+
         self.w.diff_box.append(&toolbar);
 
         // ---- content ----
@@ -192,7 +207,7 @@ fn build_diff_view(content: &gtk::Box, diff: &DiffFile, wrap: bool, show_ws: boo
         return;
     }
     for hunk in &diff.hunks {
-        let hh = label(&hunk.header, &["hunk-header", "code"]);
+        let hh = sel_label(&hunk.header, &["hunk-header", "code"]);
         hh.set_hexpand(true);
         hh.set_xalign(0.0);
         content.append(&hh);
@@ -245,7 +260,7 @@ fn diff_line_row(line: &DiffLine, wrap: bool, show_ws: bool) -> gtk::Box {
     body.append(&m);
 
     let text = display_content(&line.content, show_ws);
-    let code = label(&text, &["code", "primary-text"]);
+    let code = sel_label(&text, &["code", "primary-text"]);
     code.set_xalign(0.0);
     if wrap {
         code.set_wrap(true);
@@ -267,7 +282,7 @@ fn build_file_view(content: &gtk::Box, text: &str, wrap: bool, show_ws: bool) {
         num.set_margin_end(10);
         row.append(&num);
         let display = display_content(line, show_ws);
-        let code = label(&display, &["code", "primary-text"]);
+        let code = sel_label(&display, &["code", "primary-text"]);
         code.set_xalign(0.0);
         code.set_hexpand(true);
         if wrap {
@@ -277,6 +292,25 @@ fn build_file_view(content: &gtk::Box, text: &str, wrap: bool, show_ws: bool) {
         row.append(&code);
         content.append(&row);
     }
+}
+
+/// Re-serialise a parsed diff back into unified-diff text for the clipboard.
+fn diff_as_text(diff: &DiffFile) -> String {
+    let mut out = String::new();
+    for hunk in &diff.hunks {
+        out.push_str(&hunk.header);
+        out.push('\n');
+        for line in &hunk.lines {
+            out.push(match line.line_type {
+                DiffLineType::Added => '+',
+                DiffLineType::Removed => '-',
+                DiffLineType::Context => ' ',
+            });
+            out.push_str(&line.content);
+            out.push('\n');
+        }
+    }
+    out
 }
 
 fn display_content(content: &str, show_ws: bool) -> String {
@@ -316,7 +350,7 @@ fn icon_toggle(sf: &str, active: bool, tooltip: &str) -> gtk::Button {
 }
 
 fn centered(text: &str) -> gtk::Label {
-    let l = label(text, &["muted"]);
+    let l = sel_label(text, &["muted"]);
     l.set_hexpand(true);
     l.set_vexpand(true);
     l.set_halign(gtk::Align::Center);

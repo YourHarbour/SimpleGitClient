@@ -233,6 +233,14 @@ textview, textview text {
     font-size: 12.5px;
 }
 
+/* ---- selectable (copyable) text ---- */
+/* Selectable labels, entries and the description text view share one on-brand
+   highlight; the default Adwaita blue clashed with the teal/green accents. */
+label selection, entry selection, textview text selection {
+    background-color: alpha(@accent_teal, 0.35);
+    color: @text_primary;
+}
+
 /* checkbox */
 checkbutton { color: @text_secondary; font-size: 12px; }
 checkbutton check { background-color: @bg_app; border: 1px solid @border_strong; }

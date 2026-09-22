@@ -9,7 +9,7 @@ use gtk::glib;
 
 use crate::git::models::GitFileStatus;
 use crate::repo::{FileViewMode, RepoController};
-use crate::util::{clear_box, hbox, image, label, vbox};
+use crate::util::{clear_box, ctx_button, hbox, image, label, sel_label, vbox};
 
 // ---------- File tree (port of FileTree.swift) ----------
 
@@ -113,6 +113,8 @@ impl RepoController {
 
         self.w.panel_count_label.set_css_classes(&["dim"]);
         self.w.panel_count_label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        self.w.panel_count_label.set_selectable(true);
+        self.w.panel_branch_chip.set_selectable(true);
         // Ellipsize the branch chip so a long branch name doesn't inflate the panel's
         // minimum width (which stopped the divider from reaching the drag floor).
         self.w.panel_branch_chip.set_ellipsize(gtk::pango::EllipsizeMode::End);
@@ -382,7 +384,7 @@ impl RepoController {
         b.set_margin_start(6);
         b.set_margin_end(6);
 
-        let stage = ctx_item(if staged { "Unstage File" } else { "Stage File" });
+        let stage = ctx_button(if staged { "Unstage File" } else { "Stage File" });
         let p1 = file.path.clone();
         stage.connect_clicked(glib::clone!(@weak self as this, @weak pop => move |_| {
             pop.popdown();
@@ -391,7 +393,25 @@ impl RepoController {
         b.append(&stage);
         b.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
 
-        let ignore_file = ctx_item("Ignore this file");
+        // The row owns its click gestures, so its labels can't be selectable —
+        // copying the path goes through the menu instead.
+        let copy_path = ctx_button("Copy File Path");
+        let cp = file.path.clone();
+        copy_path.connect_clicked(glib::clone!(@weak self as this, @weak pop => move |_| {
+            pop.popdown();
+            this.copy_text("file path", &cp);
+        }));
+        b.append(&copy_path);
+        let copy_name = ctx_button("Copy File Name");
+        let cn = file.file_name();
+        copy_name.connect_clicked(glib::clone!(@weak self as this, @weak pop => move |_| {
+            pop.popdown();
+            this.copy_text("file name", &cn);
+        }));
+        b.append(&copy_name);
+        b.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+
+        let ignore_file = ctx_button("Ignore this file");
         let p2 = file.path.clone();
         ignore_file.connect_clicked(glib::clone!(@weak self as this, @weak pop => move |_| {
             pop.popdown();
@@ -404,7 +424,7 @@ impl RepoController {
             d.trim_end_matches('/').to_string()
         };
         if !dir.is_empty() {
-            let item = ctx_item(&format!("Ignore folder “{dir}/”"));
+            let item = ctx_button(&format!("Ignore folder “{dir}/”"));
             let d = dir.clone();
             item.connect_clicked(glib::clone!(@weak self as this, @weak pop => move |_| {
                 pop.popdown();
@@ -413,7 +433,7 @@ impl RepoController {
             b.append(&item);
         }
         if let Some(ext) = file.path.rsplit_once('.').map(|(_, e)| e.to_string()).filter(|e| !e.is_empty() && !e.contains('/')) {
-            let item = ctx_item(&format!("Ignore all “*.{ext}”"));
+            let item = ctx_button(&format!("Ignore all “*.{ext}”"));
             item.connect_clicked(glib::clone!(@weak self as this, @weak pop => move |_| {
                 pop.popdown();
                 this.add_to_gitignore(format!("*.{}", ext));
@@ -422,7 +442,7 @@ impl RepoController {
         }
 
         b.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
-        let discard = ctx_item("Discard Changes");
+        let discard = ctx_button("Discard Changes");
         discard.add_css_class("red");
         let p3 = file.path.clone();
         discard.connect_clicked(glib::clone!(@weak self as this, @weak pop => move |_| {
@@ -620,7 +640,7 @@ impl RepoController {
         let sp = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         sp.set_hexpand(true);
         header.append(&sp);
-        header.append(&label(&commit.short_hash, &["muted", "code"]));
+        header.append(&sel_label(&commit.short_hash, &["muted", "code"]));
         self.w.commit_detail_box.append(&header);
 
         // info
@@ -628,13 +648,13 @@ impl RepoController {
         info.set_margin_start(16);
         info.set_margin_end(16);
         info.set_margin_bottom(16);
-        let msg = label(&commit.message, &["primary-text"]);
+        let msg = sel_label(&commit.message, &["primary-text"]);
         msg.add_css_class("h2");
         msg.set_wrap(true);
         msg.set_xalign(0.0);
         info.append(&msg);
         if !commit.body.is_empty() {
-            let body = label(&commit.body, &["dim"]);
+            let body = sel_label(&commit.body, &["dim"]);
             body.set_wrap(true);
             body.set_xalign(0.0);
             info.append(&body);
@@ -646,8 +666,8 @@ impl RepoController {
         avatar.set_size_request(28, 28);
         author_row.append(&avatar);
         let who = vbox(2);
-        who.append(&label(&commit.author, &["primary-text"]));
-        who.append(&label(&commit.date_display, &["caption"]));
+        who.append(&sel_label(&commit.author, &["primary-text"]));
+        who.append(&sel_label(&commit.date_display, &["caption"]));
         author_row.append(&who);
         info.append(&author_row);
         self.w.commit_detail_box.append(&info);
@@ -658,7 +678,7 @@ impl RepoController {
         let files_header = hbox(0);
         files_header.add_css_class("elevated");
         files_header.set_margin_top(0);
-        let fh = label(&format!("{} changed files", files.len()), &["section-title"]);
+        let fh = sel_label(&format!("{} changed files", files.len()), &["section-title"]);
         fh.set_margin_start(16);
         fh.set_margin_top(8);
         fh.set_margin_bottom(8);
@@ -715,6 +735,30 @@ impl RepoController {
         btn.connect_clicked(glib::clone!(@weak self as this => move |_| {
             this.show_commit_file_diff(hash.clone(), path.clone());
         }));
+
+        let gesture = gtk::GestureClick::new();
+        gesture.set_button(3);
+        let cp = file.path.clone();
+        gesture.connect_pressed(glib::clone!(@weak self as this, @weak btn => move |_, _, x, y| {
+            let pop = gtk::Popover::new();
+            pop.set_parent(&btn);
+            pop.set_pointing_to(Some(&gtk::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+            let b = vbox(2);
+            b.set_margin_top(6);
+            b.set_margin_bottom(6);
+            b.set_margin_start(6);
+            b.set_margin_end(6);
+            let copy_path = ctx_button("Copy File Path");
+            let p = cp.clone();
+            copy_path.connect_clicked(glib::clone!(@weak this, @weak pop => move |_| {
+                pop.popdown();
+                this.copy_text("file path", &p);
+            }));
+            b.append(&copy_path);
+            pop.set_child(Some(&b));
+            pop.popup();
+        }));
+        btn.add_controller(gesture);
         btn
     }
 }
@@ -734,14 +778,4 @@ fn toggle_active(btn: &gtk::Button, active: bool) {
     } else {
         btn.remove_css_class("active");
     }
-}
-
-fn ctx_item(text: &str) -> gtk::Button {
-    let b = gtk::Button::new();
-    let l = gtk::Label::new(Some(text));
-    l.set_xalign(0.0);
-    b.set_child(Some(&l));
-    b.add_css_class("row-hover");
-    b.set_has_frame(false);
-    b
 }

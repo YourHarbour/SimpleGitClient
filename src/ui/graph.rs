@@ -6,10 +6,10 @@ use adw::prelude::*;
 use gtk::glib;
 
 use crate::git::graph::{self, EdgeKind, GraphRow};
-use crate::git::models::{GitRef, RefType};
+use crate::git::models::{GitCommit, GitRef, RefType};
 use crate::repo::RepoController;
 use crate::theme;
-use crate::util::{clear_box, hbox, image, label, vbox};
+use crate::util::{clear_box, ctx_button, hbox, image, label, vbox};
 
 fn graph_col_min(max_lane: usize) -> f64 {
     (theme::GRAPH_LEADING_PAD + (max_lane as f64 + 1.0) * theme::GRAPH_LANE_SPACING + 12.0).max(56.0)
@@ -185,7 +185,54 @@ impl RepoController {
                 this.select_commit_row(id.clone());
             }
         }));
+
+        // The row is a GtkButton, so its labels can't be made selectable without
+        // eating the click — right-click offers the same text via the clipboard.
+        if let Some(commit) = row.commit.clone() {
+            let gesture = gtk::GestureClick::new();
+            gesture.set_button(3);
+            gesture.connect_pressed(glib::clone!(@weak self as this, @weak btn => move |_, _, x, y| {
+                this.commit_context_menu(&btn, &commit, x, y);
+            }));
+            btn.add_controller(gesture);
+        }
         btn
+    }
+
+    fn commit_context_menu(self: &Rc<Self>, anchor: &gtk::Button, commit: &GitCommit, x: f64, y: f64) {
+        let pop = gtk::Popover::new();
+        pop.set_parent(anchor);
+        pop.set_pointing_to(Some(&gtk::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+        let pb = vbox(2);
+        pb.set_margin_top(6);
+        pb.set_margin_bottom(6);
+        pb.set_margin_start(6);
+        pb.set_margin_end(6);
+
+        // Full message = subject + body, exactly what `git log` shows.
+        let full_message = if commit.body.is_empty() {
+            commit.message.clone()
+        } else {
+            format!("{}\n\n{}", commit.message, commit.body)
+        };
+        let items: [(&str, &str, String); 4] = [
+            ("Copy Commit Hash", "commit hash", commit.id.clone()),
+            ("Copy Short Hash", "short hash", commit.short_hash.clone()),
+            ("Copy Commit Message", "commit message", full_message),
+            ("Copy Author", "author", format!("{} <{}>", commit.author, commit.author_email)),
+        ];
+        for (title, what, value) in items {
+            let item = ctx_button(title);
+            let what = what.to_string();
+            item.connect_clicked(glib::clone!(@weak self as this, @weak pop => move |_| {
+                pop.popdown();
+                this.copy_text(&what, &value);
+            }));
+            pb.append(&item);
+        }
+
+        pop.set_child(Some(&pb));
+        pop.popup();
     }
 }
 

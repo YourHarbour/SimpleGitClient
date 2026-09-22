@@ -280,6 +280,18 @@ impl RepoController {
         eprintln!("[SimpleGitClient] {ctx} error: {e}");
     }
 
+    // MARK: - Clipboard
+
+    /// Copy `text` and confirm it with a toast. `what` names the thing copied
+    /// ("commit hash", "file path", …) so the toast reads as a sentence.
+    pub fn copy_text(&self, what: &str, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        crate::util::copy_to_clipboard(text);
+        self.toast(&format!("Copied {what}"), ToastStyle::Info);
+    }
+
     // MARK: - Assembly (built in ui/*.rs)
 
     fn assemble(self: &Rc<Self>) {
@@ -711,6 +723,23 @@ impl RepoController {
                     this.toast(&format!("Deleted branch {name}"), ToastStyle::Info);
                 }
                 Err(e) => this.show_err("Delete branch", &e),
+            }
+        });
+    }
+
+    /// `git branch -D` — drops the branch even when its commits are not merged
+    /// anywhere else, so they become unreachable. Always confirm before calling.
+    pub fn force_delete_branch(self: &Rc<Self>, name: String) {
+        let this = self.clone();
+        glib::spawn_future_local(async move {
+            match this.service.delete_branch(&name, true).await {
+                Ok(_) => {
+                    this.refresh_branches().await;
+                    this.refresh_sidebar();
+                    this.refresh_graph();
+                    this.toast(&format!("Force-deleted branch {name}"), ToastStyle::Info);
+                }
+                Err(e) => this.show_err("Force delete branch", &e),
             }
         });
     }

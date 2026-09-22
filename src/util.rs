@@ -20,6 +20,25 @@ pub fn label(text: &str, classes: &[&str]) -> gtk::Label {
     l
 }
 
+/// A label whose text the user can select with the mouse and copy (Ctrl+C, or the
+/// label's built-in right-click menu).
+///
+/// Only for *standalone* text. Inside a GtkButton — or a row that installs its own
+/// click gesture — a selectable label claims the button press first and the row
+/// stops reacting, so those rows get an explicit "Copy …" context-menu item instead.
+pub fn sel_label(text: &str, classes: &[&str]) -> gtk::Label {
+    let l = label(text, classes);
+    l.set_selectable(true);
+    l
+}
+
+/// Put `text` on the system clipboard.
+pub fn copy_to_clipboard(text: &str) {
+    if let Some(display) = gtk::gdk::Display::default() {
+        display.clipboard().set_text(text);
+    }
+}
+
 /// Remove every child of a box.
 pub fn clear_box(b: &gtk::Box) {
     while let Some(child) = b.first_child() {
@@ -42,6 +61,17 @@ pub fn icon_button(sf: &str, tooltip: &str) -> gtk::Button {
         btn.set_tooltip_text(Some(tooltip));
     }
     btn
+}
+
+/// A left-aligned flat button used as a row inside a popover context menu.
+pub fn ctx_button(text: &str) -> gtk::Button {
+    let b = gtk::Button::new();
+    let l = gtk::Label::new(Some(text));
+    l.set_xalign(0.0);
+    b.set_child(Some(&l));
+    b.add_css_class("row-hover");
+    b.set_has_frame(false);
+    b
 }
 
 pub fn image(sf: &str) -> gtk::Image {
@@ -87,6 +117,7 @@ pub fn icon_name(sf: &str) -> &'static str {
         "globe" => "network-workgroup-symbolic",
         "chevron.left.forwardslash.chevron.right" => "utilities-terminal-symbolic",
         "tray" => "inbox-symbolic",
+        "doc.on.doc" => "edit-copy-symbolic",
         "paragraphsign" => "format-text-underline-symbolic",
         "arrow.turn.down.left" => "format-justify-fill-symbolic",
         _ => "image-missing-symbolic",

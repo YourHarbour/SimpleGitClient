@@ -9,7 +9,7 @@ use crate::forge::ForgeItem;
 use crate::git::models::GitBranch;
 use crate::repo::RepoController;
 use crate::theme;
-use crate::util::{clear_box, hbox, icon_name, image, label, vbox};
+use crate::util::{clear_box, ctx_button, hbox, icon_name, image, label, sel_label, vbox};
 
 impl RepoController {
     pub(crate) fn build_sidebar_content(self: &Rc<Self>) {
@@ -213,35 +213,104 @@ impl RepoController {
             }
         }));
 
-        // right-click context menu
-        if is_local && !is_current {
-            let gesture = gtk::GestureClick::new();
-            gesture.set_button(3);
-            let bname2 = branch.name.clone();
-            gesture.connect_pressed(glib::clone!(@weak self as this, @weak btn => move |_, _, x, y| {
-                let pop = gtk::Popover::new();
-                pop.set_parent(&btn);
-                pop.set_pointing_to(Some(&gtk::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
-                let pb = vbox(2);
-                pb.set_margin_top(6);
-                pb.set_margin_bottom(6);
-                pb.set_margin_start(6);
-                pb.set_margin_end(6);
-                let checkout = ctx_button("Checkout");
-                let co_name = bname2.clone();
-                checkout.connect_clicked(glib::clone!(@weak this, @weak pop => move |_| { pop.popdown(); this.checkout_branch(co_name.clone()); }));
-                let del_name = bname2.clone();
-                let delete = ctx_button("Delete");
-                delete.add_css_class("red");
-                delete.connect_clicked(glib::clone!(@weak this, @weak pop => move |_| { pop.popdown(); this.delete_branch(del_name.clone()); }));
-                pb.append(&checkout);
-                pb.append(&delete);
-                pop.set_child(Some(&pb));
-                pop.popup();
-            }));
-            btn.add_controller(gesture);
-        }
+        // Right-click context menu. Every row gets one now — "Copy Branch Name"
+        // applies to remote and checked-out rows too; the destructive entries stay
+        // limited to a local branch you are not standing on.
+        let gesture = gtk::GestureClick::new();
+        gesture.set_button(3);
+        let bname2 = branch.name.clone();
+        gesture.connect_pressed(glib::clone!(@weak self as this, @weak btn => move |_, _, x, y| {
+            this.branch_context_menu(&btn, &bname2, is_local, is_current, x, y);
+        }));
+        btn.add_controller(gesture);
         btn
+    }
+
+    fn branch_context_menu(
+        self: &Rc<Self>,
+        anchor: &gtk::Button,
+        name: &str,
+        is_local: bool,
+        is_current: bool,
+        x: f64,
+        y: f64,
+    ) {
+        let pop = gtk::Popover::new();
+        pop.set_parent(anchor);
+        pop.set_pointing_to(Some(&gtk::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+        let pb = vbox(2);
+        pb.set_margin_top(6);
+        pb.set_margin_bottom(6);
+        pb.set_margin_start(6);
+        pb.set_margin_end(6);
+
+        let removable = is_local && !is_current;
+
+        if removable {
+            let checkout = ctx_button("Checkout");
+            let co_name = name.to_string();
+            checkout.connect_clicked(glib::clone!(@weak self as this, @weak pop => move |_| {
+                pop.popdown();
+                this.checkout_branch(co_name.clone());
+            }));
+            pb.append(&checkout);
+            pb.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        }
+
+        let copy = ctx_button("Copy Branch Name");
+        let cp_name = name.to_string();
+        copy.connect_clicked(glib::clone!(@weak self as this, @weak pop => move |_| {
+            pop.popdown();
+            this.copy_text("branch name", &cp_name);
+        }));
+        pb.append(&copy);
+
+        if removable {
+            pb.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+            let del_name = name.to_string();
+            let delete = ctx_button("Delete");
+            delete.add_css_class("red");
+            delete.set_tooltip_text(Some("git branch -d — refuses if the branch isn't merged"));
+            delete.connect_clicked(glib::clone!(@weak self as this, @weak pop => move |_| {
+                pop.popdown();
+                this.delete_branch(del_name.clone());
+            }));
+            pb.append(&delete);
+
+            let force_name = name.to_string();
+            let force = ctx_button("Force Delete\u{2026}");
+            force.add_css_class("red");
+            force.set_tooltip_text(Some("git branch -D — deletes even unmerged commits"));
+            force.connect_clicked(glib::clone!(@weak self as this, @weak pop => move |_| {
+                pop.popdown();
+                this.confirm_force_delete_branch(force_name.clone());
+            }));
+            pb.append(&force);
+        }
+
+        pop.set_child(Some(&pb));
+        pop.popup();
+    }
+
+    /// Force delete throws away commits that live only on this branch, so it is
+    /// always gated behind an explicit destructive confirmation.
+    fn confirm_force_delete_branch(self: &Rc<Self>, name: String) {
+        let Some(app) = self.app() else { return };
+        let dialog = adw::MessageDialog::new(
+            Some(&app.window),
+            Some(&format!("Force delete \u{201c}{name}\u{201d}?")),
+            Some("This runs `git branch -D`, which deletes the branch even if it has not been merged.                   Commits reachable only from this branch become unreferenced and are eventually                   garbage-collected. This cannot be undone from the app."),
+        );
+        dialog.add_responses(&[("cancel", "Cancel"), ("force", "Force Delete")]);
+        dialog.set_response_appearance("force", adw::ResponseAppearance::Destructive);
+        dialog.set_default_response(Some("cancel"));
+        dialog.set_close_response("cancel");
+        dialog.connect_response(None, glib::clone!(@weak self as this => move |_, resp| {
+            if resp == "force" {
+                this.force_delete_branch(name.clone());
+            }
+        }));
+        dialog.present();
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -303,6 +372,40 @@ impl RepoController {
         btn.set_tooltip_text(Some(&format!("#{} {} — open in browser", item.number, item.title)));
         let url = item.url.clone();
         btn.connect_clicked(move |_| crate::forge::open_url(&url));
+
+        // Right-click: the row itself opens the browser, so copying the link or the
+        // title needs its own menu.
+        let gesture = gtk::GestureClick::new();
+        gesture.set_button(3);
+        let link = item.url.clone();
+        let heading = format!("#{} {}", item.number, item.title);
+        gesture.connect_pressed(glib::clone!(@weak self as this, @weak btn => move |_, _, x, y| {
+            let pop = gtk::Popover::new();
+            pop.set_parent(&btn);
+            pop.set_pointing_to(Some(&gtk::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+            let pb = vbox(2);
+            pb.set_margin_top(6);
+            pb.set_margin_bottom(6);
+            pb.set_margin_start(6);
+            pb.set_margin_end(6);
+            let copy_link = ctx_button("Copy Link");
+            let l = link.clone();
+            copy_link.connect_clicked(glib::clone!(@weak this, @weak pop => move |_| {
+                pop.popdown();
+                this.copy_text("link", &l);
+            }));
+            let copy_title = ctx_button("Copy Title");
+            let t = heading.clone();
+            copy_title.connect_clicked(glib::clone!(@weak this, @weak pop => move |_| {
+                pop.popdown();
+                this.copy_text("title", &t);
+            }));
+            pb.append(&copy_link);
+            pb.append(&copy_title);
+            pop.set_child(Some(&pb));
+            pop.popup();
+        }));
+        btn.add_controller(gesture);
         btn
     }
 
@@ -339,7 +442,7 @@ fn hint_row(text: &str) -> gtk::Box {
     row.set_margin_end(12);
     row.set_margin_top(4);
     row.set_margin_bottom(4);
-    let l = label(text, &["muted"]);
+    let l = sel_label(text, &["muted"]);
     l.set_ellipsize(gtk::pango::EllipsizeMode::End);
     row.append(&l);
     row
@@ -366,7 +469,7 @@ fn simple_row(icon: &str, text: &str, color_class: &str) -> gtk::Box {
     img.set_pixel_size(11);
     img.add_css_class(color_class);
     row.append(&img);
-    let l = label(text, &["dim"]);
+    let l = sel_label(text, &["dim"]);
     l.set_ellipsize(gtk::pango::EllipsizeMode::End);
     row.append(&l);
     row
@@ -385,14 +488,4 @@ fn rail_icon(icon: &str, count: usize) -> gtk::Widget {
         overlay.add_overlay(&badge);
     }
     overlay.upcast()
-}
-
-fn ctx_button(text: &str) -> gtk::Button {
-    let b = gtk::Button::new();
-    let l = gtk::Label::new(Some(text));
-    l.set_xalign(0.0);
-    b.set_child(Some(&l));
-    b.add_css_class("row-hover");
-    b.set_has_frame(false);
-    b
 }
