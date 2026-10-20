@@ -144,6 +144,35 @@ impl GitBranch {
     }
 }
 
+/// What clicking a remote-tracking branch (e.g. `origin/feature`) should do.
+#[derive(Clone, Debug, PartialEq)]
+pub enum RemoteCheckout {
+    /// The local branch tracking it (or sharing its name) is already checked out.
+    AlreadyOn(String),
+    /// A local counterpart exists — just switch to it.
+    Switch(String),
+    /// No local counterpart yet: create `local` tracking the remote branch.
+    CreateTracking { local: String },
+}
+
+/// Resolve a remote branch to its local counterpart. A local branch whose
+/// upstream is this remote wins; otherwise a local branch with the same short
+/// name is reused (what `git switch <name>` would pick); otherwise a new
+/// tracking branch is created.
+pub fn plan_remote_checkout(branches: &[GitBranch], remote: &GitBranch) -> RemoteCheckout {
+    let local_name = remote.display_name();
+    let local = branches
+        .iter()
+        .filter(|b| b.is_local)
+        .find(|b| b.tracking_branch.as_deref() == Some(remote.name.as_str()))
+        .or_else(|| branches.iter().find(|b| b.is_local && b.name == local_name));
+    match local {
+        Some(b) if b.is_current => RemoteCheckout::AlreadyOn(b.name.clone()),
+        Some(b) => RemoteCheckout::Switch(b.name.clone()),
+        None => RemoteCheckout::CreateTracking { local: local_name },
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct GitTag {
     pub name: String,
@@ -202,4 +231,53 @@ pub struct GitCredential {
     pub host: String,
     pub username: String,
     pub token: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn br(name: &str, remote: bool, current: bool, upstream: Option<&str>) -> GitBranch {
+        GitBranch {
+            name: name.into(),
+            is_local: !remote,
+            is_remote: remote,
+            is_current: current,
+            tracking_branch: upstream.map(Into::into),
+            last_commit_hash: None,
+            last_commit_message: None,
+        }
+    }
+
+    #[test]
+    fn remote_without_local_creates_tracking_branch() {
+        let remote = br("origin/feature/login", true, false, None);
+        let all = vec![br("main", false, true, Some("origin/main")), remote.clone()];
+        assert_eq!(
+            plan_remote_checkout(&all, &remote),
+            RemoteCheckout::CreateTracking { local: "feature/login".into() }
+        );
+    }
+
+    #[test]
+    fn remote_with_tracking_local_switches_to_it() {
+        let remote = br("origin/dev", true, false, None);
+        // local named differently, but its upstream is origin/dev
+        let all = vec![br("main", false, true, None), br("my-dev", false, false, Some("origin/dev")), remote.clone()];
+        assert_eq!(plan_remote_checkout(&all, &remote), RemoteCheckout::Switch("my-dev".into()));
+    }
+
+    #[test]
+    fn remote_of_current_branch_is_noop() {
+        let remote = br("origin/main", true, false, None);
+        let all = vec![br("main", false, true, Some("origin/main")), remote.clone()];
+        assert_eq!(plan_remote_checkout(&all, &remote), RemoteCheckout::AlreadyOn("main".into()));
+    }
+
+    #[test]
+    fn same_named_local_without_upstream_is_reused() {
+        let remote = br("origin/fix", true, false, None);
+        let all = vec![br("main", false, true, None), br("fix", false, false, None), remote.clone()];
+        assert_eq!(plan_remote_checkout(&all, &remote), RemoteCheckout::Switch("fix".into()));
+    }
 }

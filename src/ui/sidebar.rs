@@ -204,12 +204,15 @@ impl RepoController {
         btn.add_css_class("row-hover");
         btn.set_has_frame(false);
 
-        let is_local = branch.is_local;
-        let is_current = branch.is_current;
-        let bname = branch.name.clone();
+        if branch.is_remote {
+            btn.set_tooltip_text(Some(&format!("Check out {} as a local branch", branch.name)));
+        }
+        let b = branch.clone();
         btn.connect_clicked(glib::clone!(@weak self as this => move |_| {
-            if is_local && !is_current {
-                this.checkout_branch(bname.clone());
+            if b.is_remote {
+                this.checkout_remote_branch(b.clone());
+            } else if !b.is_current {
+                this.checkout_branch(b.name.clone());
             }
         }));
 
@@ -218,23 +221,18 @@ impl RepoController {
         // limited to a local branch you are not standing on.
         let gesture = gtk::GestureClick::new();
         gesture.set_button(3);
-        let bname2 = branch.name.clone();
+        let b = branch.clone();
         gesture.connect_pressed(glib::clone!(@weak self as this, @weak btn => move |_, _, x, y| {
-            this.branch_context_menu(&btn, &bname2, is_local, is_current, x, y);
+            this.branch_context_menu(&btn, &b, x, y);
         }));
         btn.add_controller(gesture);
         btn
     }
 
-    fn branch_context_menu(
-        self: &Rc<Self>,
-        anchor: &gtk::Button,
-        name: &str,
-        is_local: bool,
-        is_current: bool,
-        x: f64,
-        y: f64,
-    ) {
+    fn branch_context_menu(self: &Rc<Self>, anchor: &gtk::Button, branch: &GitBranch, x: f64, y: f64) {
+        let name = branch.name.as_str();
+        let is_local = branch.is_local;
+        let is_current = branch.is_current;
         let pop = gtk::Popover::new();
         pop.set_parent(anchor);
         pop.set_pointing_to(Some(&gtk::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
@@ -252,6 +250,16 @@ impl RepoController {
             checkout.connect_clicked(glib::clone!(@weak self as this, @weak pop => move |_| {
                 pop.popdown();
                 this.checkout_branch(co_name.clone());
+            }));
+            pb.append(&checkout);
+            pb.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        } else if branch.is_remote {
+            let checkout = ctx_button("Checkout");
+            checkout.set_tooltip_text(Some("Switch to the local branch tracking this, creating it if needed"));
+            let remote = branch.clone();
+            checkout.connect_clicked(glib::clone!(@weak self as this, @weak pop => move |_| {
+                pop.popdown();
+                this.checkout_remote_branch(remote.clone());
             }));
             pb.append(&checkout);
             pb.append(&gtk::Separator::new(gtk::Orientation::Horizontal));

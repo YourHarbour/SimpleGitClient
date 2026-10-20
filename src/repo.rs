@@ -700,6 +700,41 @@ impl RepoController {
         });
     }
 
+    /// Clicking a remote branch: switch to its local counterpart, or create one
+    /// that tracks it (`git switch -c <name> --track <remote>/<name>`).
+    pub fn checkout_remote_branch(self: &Rc<Self>, remote: GitBranch) {
+        let plan = plan_remote_checkout(&self.state.borrow().branches, &remote);
+        let (local, create) = match plan {
+            RemoteCheckout::AlreadyOn(name) => {
+                self.toast(&format!("Already on {name}"), ToastStyle::Info);
+                return;
+            }
+            RemoteCheckout::Switch(name) => (name, false),
+            RemoteCheckout::CreateTracking { local } => (local, true),
+        };
+        let this = self.clone();
+        glib::spawn_future_local(async move {
+            let id = this.activity_begin(&format!("Switching to {local}…"));
+            let r = if create {
+                this.service.checkout_tracking(&local, &remote.name).await
+            } else {
+                this.service.checkout(&local).await
+            };
+            if r.is_ok() {
+                this.refresh().await;
+            }
+            this.activity_end(id);
+            match r {
+                Ok(_) if create => this.toast(
+                    &format!("Created {local} tracking {}", remote.name),
+                    ToastStyle::Success,
+                ),
+                Ok(_) => this.toast(&format!("Switched to {local}"), ToastStyle::Success),
+                Err(e) => this.toast(&format!("Checkout failed: {e}"), ToastStyle::Error),
+            }
+        });
+    }
+
     pub fn create_branch(self: &Rc<Self>, name: String) {
         let this = self.clone();
         glib::spawn_future_local(async move {

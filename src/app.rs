@@ -134,6 +134,14 @@ impl App {
         bar.add_css_class("border-bottom");
         bar.set_size_request(-1, crate::theme::TITLE_BAR_HEIGHT);
 
+        // Window buttons follow the system `button-layout` ("close,minimize,maximize:"
+        // on macOS-style themes such as WhiteSur puts them all on the left), so keep a
+        // controls box on each side and hide whichever one the layout leaves empty —
+        // the same thing GtkHeaderBar does internally.
+        let start_controls = window_controls(gtk::PackType::Start);
+        start_controls.set_margin_start(6);
+        bar.append(&start_controls);
+
         // leading pad
         let pad = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         pad.set_size_request(8, -1);
@@ -156,10 +164,9 @@ impl App {
         settings.connect_clicked(glib::clone!(@weak self as this => move |_| this.show_credentials_sheet()));
         bar.append(&settings);
 
-        let controls = gtk::WindowControls::new(gtk::PackType::End);
-        controls.set_valign(gtk::Align::Center);
-        controls.set_margin_end(6);
-        bar.append(&controls);
+        let end_controls = window_controls(gtk::PackType::End);
+        end_controls.set_margin_end(6);
+        bar.append(&end_controls);
 
         handle.set_child(Some(&bar));
         handle.upcast()
@@ -716,6 +723,31 @@ impl App {
         dialog.add_response("ok", "OK");
         dialog.present();
     }
+}
+
+/// Window buttons for one side of the title bar; hidden while the system
+/// layout puts none on that side, so its margin doesn't leave a gap.
+///
+/// Themes style these only as `headerbar windowcontrols button.close …` (WhiteSur
+/// paints its traffic lights that way), and our title bar is a plain box, not a
+/// HeaderBar. So the controls sit in a holder whose CSS node is named `headerbar`;
+/// CSS_OVERRIDE strips the holder's own headerbar background/height. A real
+/// HeaderBar for the whole bar is not an option: the theme's `headerbar button`
+/// rules (USER priority, above our main sheet) would restyle the tabs too.
+fn window_controls(side: gtk::PackType) -> gtk::Box {
+    let controls = gtk::WindowControls::new(side);
+    let holder = gtk::Box::builder()
+        .css_name("headerbar")
+        .css_classes(["titlebar-controls"])
+        .valign(gtk::Align::Center)
+        .build();
+    holder.append(&controls);
+    controls
+        .bind_property("empty", &holder, "visible")
+        .invert_boolean()
+        .sync_create()
+        .build();
+    holder
 }
 
 fn count_children(b: &gtk::Box) -> usize {

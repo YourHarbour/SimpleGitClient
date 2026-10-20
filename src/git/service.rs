@@ -334,6 +334,11 @@ impl GitService {
     pub async fn create_branch(&self, name: &str) -> Result<(), GitError> {
         self.exec(args!["switch", "-c", name]).await.map(|_| ())
     }
+    /// Create local `name` from remote-tracking `remote` (e.g. `origin/feature`)
+    /// with its upstream set, and switch to it.
+    pub async fn checkout_tracking(&self, name: &str, remote: &str) -> Result<(), GitError> {
+        self.exec(args!["switch", "-c", name, "--track", remote]).await.map(|_| ())
+    }
     pub async fn delete_branch(&self, name: &str, force: bool) -> Result<(), GitError> {
         self.exec(args!["branch", if force { "-D" } else { "-d" }, name]).await.map(|_| ())
     }

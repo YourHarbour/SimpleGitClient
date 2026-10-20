@@ -340,4 +340,20 @@ button.primary-btn:disabled { background: alpha(#3fa957, 0.8); background-image:
     box-shadow: none;
 }
 .segment button.active:hover { background: #363b45; background-image: none; }
+
+/* Holder around the window buttons (see `window_controls` in app.rs). Its CSS
+   node is named `headerbar` so the theme's `headerbar windowcontrols` rules give
+   the buttons their native look, but the holder itself must not pick up the
+   theme's headerbar bar styling (WhiteSur: 42px min-height, own background,
+   bottom border). Must be at USER priority: themes installed into
+   ~/.config/gtk-4.0/gtk.css load there too, above the main sheet. */
+headerbar.titlebar-controls,
+headerbar.titlebar-controls:backdrop {
+    background: none;
+    min-height: 0;
+    padding: 0;
+    margin: 0;
+    border: none;
+    box-shadow: none;
+}
 "#;
